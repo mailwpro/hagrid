@@ -7,6 +7,8 @@ user ID. Keys can be queried by their verified user IDs (exact match) and their
 primary keys fingerprint. Keys can be deleted by clicking a link send to all
 user IDs.
 
+[Hagrid Demo](https://pgp.unix.lu)
+
 Quick Start
 -----------
 
