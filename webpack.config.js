@@ -7,14 +7,14 @@ module.exports = {
   mode: 'production',
   entry: './templates/index.js',
   output: {
-    filename: 'site.js',
+    filename: 'hagrid.bundle.js',
     path: path.resolve(__dirname, 'dist', 'public', 'assets'),
     publicPath: '/assets'
   },
   module: {
     rules: [
       {
-        test:/\.(s*)css$/,
+        test: /\.(s*)css$/,
         use: text.extract({
           fallback: 'style-loader',
           use: [
@@ -41,7 +41,7 @@ module.exports = {
       template: 'templates/layout.html.hbs',
     }),
     new text({
-      filename: 'site.css'
+      filename: 'hagrid.css'
     }),
     new copy([
       {

@@ -1,17 +1,43 @@
 {{#> layout }}
-  <h1 class="mt-5">Hagrid Public Key Server</h1>
-  <p class="lead">The verifying PGP key server.</p>
-
-  <h2>Search for keys</h2>
-  <form action="/pks/lookup" method=GET>
-    <input type="search" id="search" name="search" placeholder="Email">
-    <input type="hidden" id="op" name="op" value="get">
-    <input type="submit" value="Search">
-  </form>
-
-  <h2>Upload your key</h2>
-  <form action="/pks/add" method=POST enctype=multipart/form-data>
-    <input type="file" id="keytext" name="keytext" placeholder="Your public key">
-    <input type="submit" value="Upload">
-  </form>
+<section class="cover">
+    <div class="cover-caption">
+        <div class="container">
+            <div class="row text-black">
+                <div class="col-sm-6 offset-sm-3 text-center">
+                    <h2>Search for keys</h2>
+                    <div class="info-form">
+                        <form action="/pks/lookup" method="get" class="form-inlin justify-content-center">
+                            <div class="form-group">
+                                <label class="sr-only">Email</label>
+                                <input type="search" id="search" name="search" class="form-control" placeholder="Email..">
+				<input type="hidden" id="op" name="op" value="get">
+                            </div>
+                            <button type="submit" value="Search" class="btn btn-success ">Search Email</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="cover">
+    <div class="cover-caption">
+        <div class="container">
+            <div class="row text-black">
+                <div class="col-sm-6 offset-sm-3 text-center">
+                    <h2>Upload your key</h2>
+                    <div class="info-form">
+                        <form action="/pks/add" method="post" enctype="multipart/form-data"  class="form-inlin justify-content-center">
+                            <div class="form-group">
+                                <label class="sr-only"></label>
+                                <input type="file" id="keytext" name="keytext" placeholder="Your public key">
+                            </div>
+                            <button type="submit" value="Upload" class="btn btn-success ">Upload</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 {{/layout}}

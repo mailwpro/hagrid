@@ -2,56 +2,87 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <title>OpenPGP Key Server</title>
+    <meta name="description" content="A Verifying OpenPGP Key Server" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
-    <title>Hagrid Public Key Server</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.1.5/css/fork-awesome.min.css" integrity="sha256-P64qV9gULPHiZTdrS1nM59toStkgjM0dsf5mK/UwBV4=" crossorigin="anonymous">
   </head>
-
   <body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light">
-      <a class="navbar-brand" href="#">Navbar</a>
-      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse" id="navbarSupportedContent">
-        <ul class="navbar-nav mr-auto">
-          <li class="nav-item active">
-            <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#">Link</a>
-          </li>
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-              Dropdown
-            </a>
-            <div class="dropdown-menu" aria-labelledby="navbarDropdown">
-              <a class="dropdown-item" href="#">Action</a>
-              <a class="dropdown-item" href="#">Another action</a>
-              <div class="dropdown-divider"></div>
-              <a class="dropdown-item" href="#">Something else here</a>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+   <a class="navbar-brand" href="#"><i class="fa fa-gnupg" aria-hidden="true"></i> <strong>OpenPGP</strong> Key Server</a>
+     <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+       <span class="navbar-toggler-icon"></span>
+  </button>
+<div class="collapse navbar-collapse" id="navbarSupportedContent">
+ <ul class="navbar-nav mr-auto">
+ <li class="nav-item active">
+  <a class="nav-link" href="https://pgp.unix.lu">Home <span class="sr-only">(current)</span></a>
+</li>
+<li class="nav-item">
+ <a class="nav-link" href="#" data-toggle="modal" data-target="#about">About <span class="sr-only">(current)</span></a>
+</li>
+<li class="nav-item">
+ <a class="nav-link" href="#" data-toggle="modal" data-target="#contact">Contact <span class="sr-only">(current)</span></a>
+</li></ul>
+</div>
+</nav>
+{{> @partial-block }}
+      <div class="modal fade" id="about" tabindex="-1" role="dialog" aria-labelledby="AboutLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header bg-dark">
+              <h4 class="modal-title text-white" id="AboutLabel">About this Server</h4>
+              <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
             </div>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link disabled" href="#">Disabled</a>
-          </li>
-        </ul>
-        <form class="form-inline my-2 my-lg-0">
-          <input class="form-control mr-sm-2" type="search" placeholder="Search" aria-label="Search">
-          <button class="btn btn-outline-success my-2 my-sm-0" type="submit">Search</button>
-        </form>
-      </div>
-    </nav>
-
-    <div class="container">
-      <div class="row">
-        <div class="col"></div>
-        <div class="col-md-10">
-          {{> @partial-block }}
+            <div class="modal-body">
+              <p><strong>OpenPGP</strong> is a method of encrypting and/or signing data (for example an email) in a secure <em>end to end</em>”way.
+                This means, the message is encrypted on your computer, using the recipient’s public key, in a way that the e-mail server has no knowledge of the content of the message.
+                The recipient of the message then decrypts the message on their own computer using their private key.</p>
+              <p>This Key Server hosts OpenPGP keys in a fashion that allows them to be quickly and easily retrieved and used by different client software.</p>
+              <hr />
+              <h5>OpenPGP Resources</h5>
+              <ul>
+                <li><a href="https://gnupg.org/" target="_blank">GnuPG Homepage</a> - The main location for the OpenPGP Standard.</li>
+                <li><a href="https://gitlab.com/sequoia-pgp/hagrid" target="_blank">Hagrid Keyserver Homepage</a> - The keyserver software running on this server.</li>
+                <li><a href="http://www.pgp.com/" target="_blank">PGP Inc.</a> - The historical home of PGP, but has since been sold to Symantec.</li>
+                <li><a href="https://emailselfdefense.fsf.org/en/" target="_blank">Email Self-defense</a> - A teaching site about how to use OpenPGP to communicate.</li>
+                <li><a href="http://en.wikipedia.org/wiki/Pretty_Good_Privacy" target="_blank">Wikipedia - Pretty Good Privacy</a> - A nice overview of what OpenPGP is.</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <div class="col"></div>
       </div>
-    </div>
+      <div class="modal fade" id="contact" tabindex="-1" role="dialog" aria-labelledby="ContactLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header bg-dark">
+              <h4 class="modal-title text-white" id="ContactLabel">OpenPGP Public Key</h4>
+              <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+            </div>
+            <div class="modal-body">
+            <h5>Contact Information</h5>
+            <p>This site is maintained by Unix.lu (<a href="https://pgp.unix.lu/pks/lookup?search=0x56DFD9A68175A1AB0A301BC386F0B390DEB3BC41&op=get">0x56DFD9A68175A1AB0A301BC386F0B390DEB3BC41</a>).<br /> 
+             If you would like to report any problems or bugs, please send an email to the address listed in one of my public keys.</p>
+            <p><b><a href="mailto:pgp@unix.lu" title="Email Address"><i class="fa fa-envelope" aria-hidden="true"></i></a></b>
+            <b><a href="https://www.unix.lu" title="Website"><i class="fa fa-link" aria-hidden="true"></i></a></b>
+            <b><a href="https://pgp.circl.lu/pks/lookup?op=vindex&fingerprint=on&search=0x86F0B390DEB3BC41" title="PGP Public Key"><i class="fa fa-key-modern" aria-hidden="true"></i></a></b></p>
+            <hr>
+            <h5>My Public PGP Key Information</h5>
+            <pre><code>uid OpenPGP KeyMaster
+pub   nistp521/0x86F0B390DEB3BC41 2019-01-18
+sub   nistp521/0x10F96E80F0E8A48D 2019-01-18
+sub   rsa4096/0x691355FC761A79E9 2019-01-18
+sub   nistp521/0xA6923517F1F6892C 2019-01-18
+fingerprint = 56DF D9A6 8175 A1AB 0A30 1BC3 86F0 B390 DEB3 BC41</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+<footer class="footer bg-dark">
+      <div class="container">
+        <span class="text-white">&copy; Copyright 2018-2019 <a target="_blank" href="https://gitlab.com/sequoia-pgp/hagrid/">Hagrid</a> v0.1.0</span>
+      </div>
+    </footer>
   </body>
 </html>
+
