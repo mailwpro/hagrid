@@ -1,16 +1,26 @@
 const path = require('path');
 const html = require('html-webpack-plugin');
 const text = require('extract-text-webpack-plugin');
-const copy = require('copy-webpack-plugin')
+const copy = require('copy-webpack-plugin');
+const uglifyjs = require('uglifyjs-webpack-plugin');
 
 module.exports = {
+  optimization: {
+    minimizer: [
+      new uglifyjs({      
+        extractComments: 'all',
+        cache: true, 
+        parallel: true,
+      }),
+    ],
+  },
   mode: 'production',
   entry: './templates/index.js',
   output: {
     filename: 'hagrid.bundle.js',
     path: path.resolve(__dirname, 'dist', 'public', 'assets'),
     publicPath: '/assets'
-  },
+},
   module: {
     rules: [
       {
@@ -23,7 +33,7 @@ module.exports = {
             {
               loader: 'postcss-loader',
               options: {
-                plugins: function () { // post css plugins, can be exported to postcss.config.js
+                 plugins: function () { // post css plugins, can be exported to postcss.config.js
                   return [
                     require('autoprefixer')
                   ];
