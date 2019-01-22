@@ -3,8 +3,8 @@ Description=Hagrid Verifying Keyserver
 After=network.target
 
 [Service]
-ExecStart=/opt/hagrid/target/release/hagrid /opt/hagrid/dist
-WorkingDirectory=/opt/hagrid
+ExecStart=/usr/bin/hagrid -D DOMAIN-CHANGE.ME -F EMAIL@CHANGE.ME -l 127.0.0.1:11370 /var/lib/hagrid
+WorkingDirectory=/var/lib/hagrid
 User=hagrid
 Group=hagrid
 StandardOutput=syslog
