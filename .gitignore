@@ -3,3 +3,4 @@
 **/*.rs.bk
 /dist
 package-lock.json
+*.sh
