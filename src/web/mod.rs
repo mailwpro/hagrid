@@ -589,7 +589,7 @@ pub mod tests {
 
         // Generate a key and upload it.
         let (tpk, _) = TPKBuilder::autocrypt(
-            None, Some("foo@invalid.example.com".into()))
+            None, Some("foo@invalid.example.com"))
             .generate().unwrap();
 
         let mut tpk_serialized = Vec::new();
@@ -647,10 +647,10 @@ pub mod tests {
 
         // Generate two keys and upload them.
         let tpk_0 = TPKBuilder::autocrypt(
-            None, Some("foo@invalid.example.com".into()))
+            None, Some("foo@invalid.example.com"))
             .generate().unwrap().0;
         let tpk_1 = TPKBuilder::autocrypt(
-            None, Some("bar@invalid.example.com".into()))
+            None, Some("bar@invalid.example.com"))
             .generate().unwrap().0;
 
         let mut tpk_serialized = Vec::new();
@@ -683,10 +683,10 @@ pub mod tests {
 
         // Generate two keys and upload them.
         let tpk_1 = TPKBuilder::autocrypt(
-            None, Some("foo@invalid.example.com".into()))
+            None, Some("foo@invalid.example.com"))
             .generate().unwrap().0;
         let tpk_2 = TPKBuilder::autocrypt(
-            None, Some("bar@invalid.example.com".into()))
+            None, Some("bar@invalid.example.com"))
             .generate().unwrap().0;
 
         let mut tpk_serialized_1 = Vec::new();
@@ -757,7 +757,7 @@ pub mod tests {
         let (_tmpdir, client) = client().unwrap();
 
         let (tpk, _) = TPKBuilder::autocrypt(
-            None, Some("foo@invalid.example.com".into()))
+            None, Some("foo@invalid.example.com"))
             .generate().unwrap();
 
         let mut tpk_serialized = Vec::new();
