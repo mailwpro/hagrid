@@ -78,14 +78,15 @@ impl Filesystem {
         let keys_external_dir: PathBuf = keys_external_dir.into();
         let keys_dir_full = keys_internal_dir.join("full");
         let keys_dir_quarantined = keys_internal_dir.join("quarantined");
-        let keys_dir_published = keys_external_dir.join("published");
+        let keys_dir_published = keys_external_dir.join("pub");
         create_dir_all(&keys_dir_full)?;
         create_dir_all(&keys_dir_quarantined)?;
         create_dir_all(&keys_dir_published)?;
 
-        let links_dir_by_keyid = keys_external_dir.join("by-keyid");
-        let links_dir_by_fingerprint = keys_external_dir.join("by-fpr");
-        let links_dir_by_email = keys_external_dir.join("by-email");
+        let links_dir = keys_external_dir.join("links");
+        let links_dir_by_keyid = links_dir.join("by-keyid");
+        let links_dir_by_fingerprint = links_dir.join("by-fpr");
+        let links_dir_by_email = links_dir.join("by-email");
         create_dir_all(&links_dir_by_keyid)?;
         create_dir_all(&links_dir_by_fingerprint)?;
         create_dir_all(&links_dir_by_email)?;
@@ -341,35 +342,14 @@ impl Database for Filesystem {
 
     fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
         use super::Query::*;
-        match term {
-            ByFingerprint(ref fp) => {
-                let path = self.link_by_fingerprint(fp);
-                let typ = match path.symlink_metadata() {
-                    Ok(meta) => meta.file_type(),
-                    Err(_) => return None,
-                };
-
-                if typ.is_file() {
-                    Some(fp.clone())
-                } else if typ.is_symlink() {
-                    path.read_link().ok()
-                        .and_then(|link_path| Filesystem::path_to_fingerprint(&link_path))
-                } else {
-                    // Neither file nor symlink.  Freak value.
-                    None
-                }
-            },
-            ByKeyID(ref keyid) => {
-                let path = self.link_by_keyid(keyid);
-                path.read_link().ok()
-                    .and_then(|path| Filesystem::path_to_fingerprint(&path))
-            },
-            ByEmail(ref email) => {
-                let path = self.link_by_email(email);
-                path.read_link().ok()
-                    .and_then(|path| Filesystem::path_to_fingerprint(&path))
-            },
-        }
+        let path = match term {
+            ByFingerprint(ref fp) => self.link_by_fingerprint(fp),
+            ByKeyID(ref keyid) => self.link_by_keyid(keyid),
+            ByEmail(ref email) => self.link_by_email(email),
+        };
+        path.read_link()
+            .ok()
+            .and_then(|link_path| Filesystem::path_to_fingerprint(&link_path))
     }
 
     /// Gets the path to the underlying file, if any.

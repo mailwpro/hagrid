@@ -2,6 +2,7 @@ use failure::Fallible as Result;
 use failure;
 
 use std::path::Path;
+use std::time::Instant;
 
 use walkdir::WalkDir;
 use indicatif::{ProgressBar,ProgressStyle};
@@ -17,6 +18,9 @@ struct RegenerateStats<'a> {
     count_err: u64,
     count_updated: u64,
     count_unchanged: u64,
+    count_partial: u64,
+    start_time_partial: Instant,
+    kps_partial: u64,
 }
 
 impl <'a> RegenerateStats<'a> {
@@ -28,30 +32,43 @@ impl <'a> RegenerateStats<'a> {
             count_err: 0,
             count_updated: 0,
             count_unchanged: 0,
+            count_partial: 0,
+            start_time_partial: Instant::now(),
+            kps_partial: 0,
         }
     }
 
     fn update(&mut self, result: Result<RegenerateResult>, fpr: Fingerprint) {
         // If a new TPK starts, parse and import.
         self.count_total += 1;
+        self.count_partial += 1;
         if (self.count_total % 10) == 0 {
             self.prefix = fpr.to_string()[0..4].to_owned();
         }
         match result {
-            Err(_) => self.count_err += 1,
+            Err(e) => {
+                self.progress.println(format!("{}: {}", fpr, e.to_string()));
+                self.count_err += 1;
+            },
             Ok(RegenerateResult::Updated) => self.count_updated += 1,
             Ok(RegenerateResult::Unchanged) => self.count_unchanged += 1,
         }
         self.progress_update();
     }
 
-    fn progress_update(&self) {
+    fn progress_update(&mut self) {
         if (self.count_total % 10) != 0 {
             return;
         }
+        if self.count_partial >= 1000 {
+            let runtime = (self.start_time_partial.elapsed().as_millis() + 1) as u64;
+            self.kps_partial = (self.count_partial * 1000) / runtime;
+            self.start_time_partial = Instant::now();
+            self.count_partial = 0;
+        }
         self.progress.set_message(&format!(
-                "prefix {} regenerated {:5} keys, {:5} Updated {:5} Unchanged {:5} Errors",
-                self.prefix, self.count_total, self.count_updated, self.count_unchanged, self.count_err));
+                "prefix {} regenerated {:5} keys, {:5} Updated {:5} Unchanged {:5} Errors ({:3} keys/s)",
+                self.prefix, self.count_total, self.count_updated, self.count_unchanged, self.count_err, self.kps_partial));
     }
 }
 
@@ -63,7 +80,7 @@ pub fn do_regenerate(config: &HagridConfig) -> Result<()> {
         false,
     )?;
 
-    let published_dir = config.keys_external_dir.as_ref().unwrap().join("published");
+    let published_dir = config.keys_external_dir.as_ref().unwrap().join("pub");
     let dirs: Vec<_> = WalkDir::new(published_dir)
         .min_depth(1)
         .max_depth(1)

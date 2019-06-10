@@ -274,7 +274,6 @@ pub trait Database: Sync + Send {
             }).collect();
 
         let fingerprints = tpk_get_linkable_fprs(&published_tpk_new);
-        println!("{:?}", fingerprints);
 
         let fpr_checks = fingerprints
             .iter()
@@ -563,18 +562,12 @@ pub trait Database: Sync + Send {
 
         for fpr in fpr_not_linked {
             keys_linked += 1;
-            if let Err(e) = self.link_fpr(&fpr, &fpr_primary) {
-                info!("Error ensuring symlink! {} {} {:?}",
-                      &fpr, &fpr_primary, e);
-            }
+            self.link_fpr(&fpr, &fpr_primary)?;
         }
 
         for email in published_emails {
             emails_linked += 1;
-            if let Err(e) = self.link_email(&email, &fpr_primary) {
-                info!("Error ensuring email symlink! {} -> {} {:?}",
-                    &email, &fpr_primary, e);
-            }
+            self.link_email(&email, &fpr_primary)?;
         }
 
         if keys_linked != 0 || emails_linked != 0 {
