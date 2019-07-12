@@ -183,6 +183,23 @@
     </div>
   </div>
 
+  <h3 id="rate-limiting"><a href="#rate-limiting">Rate Limiting</a></h3>
+
+  <p>
+    Requests to the <span class="brand">keys.openpgp.org</span> API are rate
+    limited:
+  </p>
+  <ul>
+    <li>Requests by fingerprint or key id are limited to a rate of five requests
+      per second. Excessive requests are delayed to match this rate. Short
+      bursts are allowed.
+    </li>
+    <li>Requests by e-mail address are limited to one request per minute.
+      Excessive requests will fail with <tt>error 429</tt>. Short bursts are
+      allowed.
+    </li>
+  </ul>
+
   <h2>HTTP Keyserver Protocol (HKP) Interface</h2>
   <p>
     Hagrid implements a subset of
@@ -245,6 +262,9 @@
     </li>
   </ul>
 
+  <a href="#rate-limiting">Rate limiting</a> applies as for the VKS interface
+  above.
+
   <h4>Limitations</h4>
 
   <p>
@@ -254,11 +274,13 @@
 
   <ul>
     <li>No support for <code>op=vindex</code>,</li>
-    <li>only exact matches for user IDs are returned (i.e. <code>exact=on</code> is
+    <li>only exact matches by e-mail address, fingerprint or long key id are
+      returned,</li>
+    <li>all parameters and options other than <code>op</code> and
+      <code>search</code> are ignored,</li>
+    <li>output is always machine readable (i.e. <code>options=mr</code> is
       always assumed),</li>
-    <li>the <code>fingerprint</code> variable is ignored,</li>
-    <li>the <code>nm</code> option is ignored,</li>
-    <li><code>op=index</code> returns either one or no keys,</li>
+    <li>all requests return either one or no keys,</li>
     <li>uploads are restricted to 1 MiB,</li>
     <li>all packets that aren't public keys, user IDs or signatures are filtered out.</li>
   </ul>
