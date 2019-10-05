@@ -9,12 +9,20 @@ use serde::Serialize;
 use uuid::Uuid;
 use crate::counters;
 
+use rocket_i18n::I18n;
+use gettext_macros::i18n;
+
+use rfc2047::rfc2047_encode;
+
+use crate::template_helpers;
+
 use crate::database::types::Email;
 use crate::Result;
 
 mod context {
     #[derive(Serialize, Clone)]
     pub struct Verification {
+        pub lang: String,
         pub primary_fp: String,
         pub uri: String,
         pub userid: String,
@@ -24,6 +32,7 @@ mod context {
 
     #[derive(Serialize, Clone)]
     pub struct Manage {
+        pub lang: String,
         pub primary_fp: String,
         pub uri: String,
         pub base_uri: String,
@@ -32,6 +41,7 @@ mod context {
 
     #[derive(Serialize, Clone)]
     pub struct Welcome {
+        pub lang: String,
         pub primary_fp: String,
         pub uri: String,
         pub base_uri: String,
@@ -53,37 +63,35 @@ enum Transport {
 
 impl Service {
     /// Sends mail via sendmail.
-    pub fn sendmail(from: String, base_uri: String, templates: Handlebars)
-                    -> Result<Self> {
-        Self::new(from, base_uri, templates, Transport::Sendmail)
+    pub fn sendmail(from: String, base_uri: String, template_dir: PathBuf) -> Result<Self> {
+        Self::new(from, base_uri, template_dir, Transport::Sendmail)
     }
 
     /// Sends mail by storing it in the given directory.
-    pub fn filemail(from: String, base_uri: String, templates: Handlebars,
-                    path: PathBuf)
-                    -> Result<Self> {
-        Self::new(from, base_uri, templates, Transport::Filemail(path))
+    pub fn filemail(from: String, base_uri: String, template_dir: PathBuf, path: PathBuf) -> Result<Self> {
+        Self::new(from, base_uri, template_dir, Transport::Filemail(path))
     }
 
-    fn new(from: String, base_uri: String, templates: Handlebars,
-           transport: Transport)
+    fn new(from: String, base_uri: String, template_dir: PathBuf, transport: Transport)
            -> Result<Self> {
+        let templates = template_helpers::load_handlebars(template_dir)?;
         let domain =
             url::Url::parse(&base_uri)
             ?.host_str().ok_or_else(|| failure::err_msg("No host in base-URI"))
             ?.to_string();
-        Ok(Self {
-            from: from.parse().unwrap(),
-            domain: domain,
-            templates: templates,
-            transport: transport,
-        })
+        Ok(Self { from: from.parse().unwrap(), domain, templates, transport })
     }
 
-    pub fn send_verification(&self, base_uri: &str, tpk_name: String, userid: &Email,
-                             token: &str)
-                             -> Result<()> {
+    pub fn send_verification(
+        &self,
+        i18n: &I18n,
+        base_uri: &str,
+        tpk_name: String,
+        userid: &Email,
+        token: &str
+    ) -> Result<()> {
         let ctx = context::Verification {
+            lang: i18n.lang.to_string(),
             primary_fp: tpk_name,
             uri: format!("{}/verify/{}", base_uri, token),
             userid: userid.to_string(),
@@ -95,15 +103,23 @@ impl Service {
 
         self.send(
             &vec![userid],
-            &format!("Verify {} for your key on {}", userid, self.domain),
+            &i18n!(i18n.catalog, "Verify {} for your key on {}"; userid, self.domain),
             "verify",
+            i18n.lang,
             ctx,
         )
     }
 
-    pub fn send_manage_token(&self, base_uri: &str, tpk_name: String, recipient: &Email,
-                             link_path: &str) -> Result<()> {
+    pub fn send_manage_token(
+        &self,
+        i18n: &I18n,
+        base_uri: &str,
+        tpk_name: String,
+        recipient: &Email,
+        link_path: &str,
+    ) -> Result<()> {
         let ctx = context::Manage {
+            lang: i18n.lang.to_string(),
             primary_fp: tpk_name,
             uri: format!("{}{}", base_uri, link_path),
             base_uri: base_uri.to_owned(),
@@ -114,16 +130,23 @@ impl Service {
 
         self.send(
             &[recipient],
-            &format!("Manage your key on {}", self.domain),
+            &i18n!(i18n.catalog, "Manage your key on {}"; self.domain),
             "manage",
+            i18n.lang,
             ctx,
         )
     }
 
-    pub fn send_welcome(&self, base_uri: &str, tpk_name: String, userid: &Email,
-                             token: &str)
-                             -> Result<()> {
+    pub fn send_welcome(
+        &self,
+        i18n: &I18n,
+        base_uri: &str,
+        tpk_name: String,
+        userid: &Email,
+        token: &str
+    ) -> Result<()> {
         let ctx = context::Welcome {
+            lang: i18n.lang.to_string(),
             primary_fp: tpk_name,
             uri: format!("{}/upload/{}", base_uri, token),
             base_uri: base_uri.to_owned(),
@@ -134,43 +157,50 @@ impl Service {
 
         self.send(
             &vec![userid],
-            &format!("Your key upload on {}", self.domain),
+            &i18n!(i18n.catalog, "Your key upload on {}"; self.domain),
             "welcome",
+            i18n.lang,
             ctx,
         )
     }
 
-    fn send<T>(&self, to: &[&Email], subject: &str, template: &str, ctx: T)
-               -> Result<()>
-        where T: Serialize + Clone,
-    {
-        let tmpl_html = format!("{}-html", template);
-        let tmpl_txt = format!("{}-txt", template);
-        let (html, txt) = {
-            if let (Ok(inner_html), Ok(inner_txt)) = (
-                self.templates.render(&tmpl_html, &ctx),
-                self.templates.render(&tmpl_txt, &ctx),
-            ) {
-                (Some(inner_html), Some(inner_txt))
-            } else {
-                (None, None)
-            }
-        };
+    fn render_template(
+        &self,
+        template: &str,
+        locale: &str,
+        ctx: impl Serialize
+    ) -> Result<(String, String)> {
+        let html = self.templates.render(&format!("{}/{}.htm", locale, template), &ctx)
+            .or_else(|_| self.templates.render(&format!("{}.htm", template), &ctx))
+            .map_err(|_| failure::err_msg("Email template failed to render"))?;
+        let txt = self.templates.render(&format!("{}/{}.txt", locale, template), &ctx)
+            .or_else(|_| self.templates.render(&format!("{}.txt", template), &ctx))
+            .map_err(|_| failure::err_msg("Email template failed to render"))?;
+
+        Ok((html, txt))
+    }
+
+    fn send(
+        &self,
+        to: &[&Email],
+        subject: &str,
+        template: &str,
+        locale: &str,
+        ctx: impl Serialize
+    ) -> Result<()> {
+        let (html, txt) = self.render_template(template, locale, ctx)?;
 
         if cfg!(debug_assertions) {
             for recipient in to.iter() {
                 println!("To: {}", recipient.to_string());
             }
-            println!("{}", txt.as_ref().unwrap().to_string());
+            println!("{}", &txt);
         }
 
         let email = EmailBuilder::new()
             .from(self.from.clone())
-            .subject(subject)
-            .alternative(
-                html.ok_or(failure::err_msg("Email template failed to render"))?,
-                txt.ok_or(failure::err_msg("Email template failed to render"))?,
-            )
+            .subject(rfc2047_encode(subject))
+            .alternative(html, txt)
             .message_id(format!("<{}@{}>", Uuid::new_v4(), self.domain));
 
         let email = to.iter().fold(email, |email, to| email.to(to.to_string()));
@@ -191,3 +221,4 @@ impl Service {
         Ok(())
     }
 }
+

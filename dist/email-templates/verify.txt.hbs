@@ -1,0 +1,13 @@
+{{ text "Hi," }}
+
+{{ text "this is an automated message from {{domain}}. If you didn't\nrequest this message, please ignore it." rerender }}
+
+{{ text "OpenPGP key: {{primary_fp}}" rerender }}
+
+{{ text "To let others find this key from your email address \"{{userid}}\",\nplease follow the link below:" rerender }}
+
+    {{uri}}
+
+{{ text "You can find more info at {{base_uri}}/about" rerender }}
+
+{{ text "Greetings from the keys.openpgp.org team" }}

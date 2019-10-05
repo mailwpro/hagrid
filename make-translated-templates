@@ -1,0 +1,21 @@
+#!/bin/zsh
+
+for i in templates-untranslated/**/*.hbs; do
+	local template=${${i#templates-untranslated/}}
+	local prefix_file=${i:h}/template-prefix
+	local suffix_file=${i:h}/template-suffix
+
+	echo -n "$template: "
+	for translated in templates-translated/*/$template(N); do
+		local locale=${${translated#templates-translated/}%%/*}
+		local dist_path=dist/templates/localized/$locale/$template
+		if [[ ! -d ${dist_path:h} ]]; then
+			mkdir -p ${dist_path:h}
+		fi
+		echo -n "$locale "
+		# echo "cat $prefix_file $translated $suffix_file >! $dist_path"
+		cat $prefix_file $translated $suffix_file >! $dist_path
+	done
+	echo
+
+done

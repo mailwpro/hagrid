@@ -1,0 +1,157 @@
+<div class="about usage">
+    <center><h2><a href="/about">About</a> | <a href="/about/news">News</a> | Usage | <a href="/about/faq">FAQ</a> | <a href="/about/stats">Stats</a> | <a href="/about/privacy">Privacy</a></h2></center>
+
+    <p>
+        On this page, we collect information on how to use
+        <span class="brand">keys.openpgp.org</span> with different OpenPGP
+        software products.<br />
+        We are still in the process of adding more. If you are missing some, please
+        write to us and we'll try to add it.
+    </p>
+
+    <h2>
+        <div><img src="/assets/img/enigmail.svg"></div>
+        Enigmail
+    </h2>
+    <p>
+        <a href="https://enigmail.net" target="_blank">Enigmail</a> for Thunderbird
+        uses <span class="brand">keys.openpgp.org</span> by default since
+        version 2.0.12.
+    </p>
+    <p>Full support is available since Enigmail 2.1
+        (for <a href="https://www.thunderbird.net/en-US/thunderbird/68.0beta/releasenotes/" target="_blank">Thunderbird 68</a> or newer):
+        <ul>
+            <li>Keys will be kept up to date automatically.</li>
+            <li>During key creation, you can optionally upload and verify your key.</li>
+            <li>Keys can be discovered by e-mail address.</li>
+        </ul>
+    </p>
+
+    <h2>
+        <div><img src="/assets/img/gpgtools.png"></div>
+        GPG Suite
+    </h2>
+    <p>
+        <a href="https://gpgtools.org/">GPG Suite</a> for macOS
+        uses <span class="brand">keys.openpgp.org</span> by default
+        since August 2019.
+    </p>
+
+    <h2>
+        <div><img src="/assets/img/openkeychain.svg"></div>
+        OpenKeychain
+    </h2>
+    <p>
+        <a href="https://www.openkeychain.org/">OpenKeychain</a> for Android
+        uses <span class="brand">keys.openpgp.org</span> by default
+        since July 2019.
+        <ul>
+            <li>Keys will be kept up to date automatically.</li>
+            <li>Keys can be discovered by e-mail address.</li>
+        </ul>
+    </p>
+
+    <p>
+        Note that there is no built-in support for upload and e-mail verification so far.
+    </p>
+
+    <h2>
+        <div><img src="/assets/img/gnupg.svg" /></div>
+        GnuPG
+    </h2>
+
+    <p>
+        To configure <a href="https://gnupg.org">GnuPG</a>
+        to use <span class="brand">keys.openpgp.org</span> as keyserver,
+        add this line to your <tt>gpg.conf</tt> file:
+        <blockquote>
+            keyserver hkps://keys.openpgp.org
+        </blockquote>
+    </p>
+
+    <h4 id="gnupg-retrieve"><a href="#gnupg-retrieve">Retrieving keys</a></h4>
+    <ul>
+        <li>
+            To locate the key of a user, by email address:
+            <blockquote>gpg --auto-key-locate keyserver --locate-keys user@example.net</blockquote>
+        </li>
+        <li>To refresh all your keys (e.g. new revocation certificates and subkeys):
+            <blockquote>gpg --refresh-keys</blockquote>
+        </li>
+    </ul>
+
+    <h4 id="gnupg-upload"><a href="#gnupg-upload">Uploading your key</a></h4>
+    <p>
+        Keys can be uploaded with GnuPG's <tt>--send-keys</tt> command, but
+        identity information can't be verified that way to make the key
+        searchable by e-mail address (<a href="/about">what's that?</a>).
+    </p>
+
+    <ul>
+        <li>
+            You can try this shortcut for uploading your key, which outputs
+            a direct link to the verification page:
+            <blockquote>
+                gpg --export your_address@example.net | curl -T - {{ base_uri }}
+            </blockquote>
+        </li>
+        <li>
+            Alternatively, you can export them to a file and enter that into the
+            <a href="/upload" target="_blank">upload</a> page:
+            <blockquote>
+                gpg --export your_address@example.net &gt; my_key.pub
+            </blockquote>
+        </li>
+    </ul>
+
+    <h4 id="gnupg-troubleshooting"><a href="#gnupg-troubleshooting">Troubleshooting</a></h4>
+    <ul>
+        <li>
+            Some old <tt>~/gnupg/dirmngr.conf</tt> files contain a line like this:
+            <blockquote>
+                hkp-cacert ~/.gnupg/sks-keyservers.netCA.pem
+            </blockquote>
+            <p>
+                This configuration is no longer necessary,
+                but prevents regular certificates from working.
+                It is recommended to simply remove this line from the configuration.
+            </p>
+        </li>
+        <li>
+            While refreshing keys, you may see errors like the following:
+            <blockquote>gpg: key A2604867523C7ED8: no user ID</blockquote>
+            This is a <a href="https://dev.gnupg.org/T4393" target="_blank">known problem in GnuPG</a>.
+            We are working with the GnuPG team to resolve this issue.
+        </li>
+    </ul>
+
+    <h4 id="gnupg-tor"><a href="#gnupg-tor">Usage via Tor</a></h4>
+    <p>
+        For users who want to be extra-careful,
+        <span class="brand">keys.openpgp.org</span> can be reached anonymously as an
+        <a href="https://en.wikipedia.org/wiki/Tor_(anonymity_network)#Onion_services" target="_blank">onion service</a>.
+        If you have
+        <a href="https://www.torproject.org/" target="_blank">Tor</a>
+        installed, use the following configuration:
+        <blockquote>
+            keyserver hkp://zkaan2xfbuxia2wpf7ofnkbz6r5zdbbvxbunvp5g2iebopbfc4iqmbad.onion
+        </blockquote>
+    </p>
+
+    <h2 style="margin-left: 3%;">API</h2>
+
+    <p>
+        We offer an API for integrated support in OpenPGP applications. Check
+        out our <a href="/about/api">API documentation</a>.
+    </p>
+
+    <h2 style="margin-left: 3%;">Others</h2>
+
+    <p>
+        Missing a guide for your favorite implementation?  This site is
+        a work-in-progress, and we are looking to improve. Drop us a line at
+        <span class="email">support at keys dot openpgp dot org</span> if you
+        want to help out!
+    </p>
+
+</div>

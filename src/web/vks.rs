@@ -8,6 +8,9 @@ use crate::tokens::{self, StatelessSerializable};
 use crate::rate_limiter::RateLimiter;
 use crate::web::RequestOrigin;
 
+use rocket_i18n::I18n;
+use gettext_macros::i18n;
+
 use sequoia_openpgp::TPK;
 
 use std::io::Read;
@@ -90,6 +93,7 @@ impl StatelessSerializable for VerifyTpkState {
 
 pub fn process_key(
     db: &KeyDatabase,
+    i18n: &I18n,
     tokens_stateless: &tokens::Service,
     rate_limiter: &RateLimiter,
     reader: impl Read,
@@ -123,7 +127,7 @@ pub fn process_key(
 
     match tpks.len() {
         0 => UploadResponse::err("No key submitted"),
-        1 => process_key_single(db, tokens_stateless, rate_limiter, tpks.into_iter().next().unwrap()),
+        1 => process_key_single(db, i18n, tokens_stateless, rate_limiter, tpks.into_iter().next().unwrap()),
         _ => process_key_multiple(db, tpks),
     }
 }
@@ -155,6 +159,7 @@ fn process_key_multiple(
 
 fn process_key_single(
     db: &KeyDatabase,
+    i18n: &I18n,
     tokens_stateless: &tokens::Service,
     rate_limiter: &RateLimiter,
     tpk: TPK,
@@ -165,8 +170,8 @@ fn process_key_single(
         Ok(ImportResult::New(tpk_status)) => (tpk_status, true),
         Ok(ImportResult::Updated(tpk_status)) => (tpk_status, false),
         Ok(ImportResult::Unchanged(tpk_status)) => (tpk_status, false),
-        Err(_) => return UploadResponse::err(&format!(
-            "Something went wrong processing key {}", fp)),
+        Err(_) => return UploadResponse::err(&i18n!(i18n.catalog,
+            "Something went wrong processing key {}"; fp)),
     };
 
     let verify_state = {
@@ -192,6 +197,7 @@ pub fn request_verify(
     token_stateless: rocket::State<tokens::Service>,
     mail_service: rocket::State<mail::Service>,
     rate_limiter: rocket::State<RateLimiter>,
+    i18n: I18n,
     token: String,
     addresses: Vec<String>,
 ) -> response::UploadResponse {
@@ -218,7 +224,7 @@ pub fn request_verify(
     for email in emails_requested {
         let rate_limit_ok = rate_limiter.action_perform(format!("verify-{}", &email));
         if rate_limit_ok {
-            if send_verify_email(&request_origin, &mail_service, &token_stateful, &verify_state.fpr, &email).is_err() {
+            if send_verify_email(&request_origin, &mail_service, &token_stateful, &i18n, &verify_state.fpr, &email).is_err() {
                 return UploadResponse::err(&format!("error sending email to {}", &email));
             }
         }
@@ -241,6 +247,7 @@ fn send_verify_email(
     request_origin: &RequestOrigin,
     mail_service: &mail::Service,
     token_stateful: &StatefulTokens,
+    i18n: &I18n,
     fpr: &Fingerprint,
     email: &Email,
 ) -> Result<()> {
@@ -249,6 +256,7 @@ fn send_verify_email(
     let token_verify = token_stateful.new_token("verify", token_str.as_bytes())?;
 
     mail_service.send_verification(
+        i18n,
         request_origin.get_base_uri(),
         fpr.to_string(),
         &email,
@@ -258,12 +266,14 @@ fn send_verify_email(
 
 pub fn verify_confirm(
     db: rocket::State<KeyDatabase>,
+    i18n: &I18n,
     token_service: rocket::State<StatefulTokens>,
     token: String,
 ) -> response::PublishResponse {
     let (fingerprint, email) = match check_publish_token(&db, &token_service, token) {
         Ok(x) => x,
-        Err(_) => return PublishResponse::err("Invalid verification token!"),
+        Err(_) => return PublishResponse::err(
+            &i18n!(i18n.catalog, "Invalid verification token!")),
     };
 
     response::PublishResponse::Ok {

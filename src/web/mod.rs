@@ -2,23 +2,27 @@ use rocket;
 use rocket::http::{Header, Status};
 use rocket::request;
 use rocket::outcome::Outcome;
-use rocket::response::NamedFile;
+use rocket::response::{NamedFile, Responder, Response};
 use rocket::config::Config;
-use rocket_contrib::templates::Template;
+use rocket_contrib::templates::{Template, Engines};
 use rocket::http::uri::Uri;
 use rocket_contrib::json::JsonValue;
 use rocket::response::status::Custom;
+use rocket_i18n::I18n;
 
 use rocket_prometheus::PrometheusMetrics;
 
+use gettext_macros::{compile_i18n, include_i18n};
+
 use serde::Serialize;
-use handlebars::Handlebars;
 
 use std::path::PathBuf;
 
 use crate::mail;
 use crate::tokens;
 use crate::counters;
+use crate::template_helpers::TemplateOverrides;
+use crate::i18n::I18NHelper;
 use crate::rate_limiter::RateLimiter;
 
 use crate::database::{Database, KeyDatabase, Query};
@@ -39,12 +43,33 @@ use crate::web::maintenance::MaintenanceMode;
 
 use rocket::http::hyper::header::ContentDisposition;
 
+pub struct HagridTemplate(&'static str, serde_json::Value);
+
+impl Responder<'static> for HagridTemplate {
+    fn respond_to(self, req: &rocket::Request) -> std::result::Result<Response<'static>, Status> {
+        let HagridTemplate(tmpl, ctx) = self;
+        let i18n: I18n = req.guard().expect("Error parsing language");
+        let template_overrides: rocket::State<TemplateOverrides> = req.guard().expect("TemplateOverrides must be in managed state");
+        let template_override = template_overrides.get_template_override(i18n.lang, tmpl);
+        let origin: RequestOrigin = req.guard().expect("Error determining request origin");
+        let layout_context = templates::HagridLayout::new(ctx, i18n, origin);
+
+        if let Some(template_override) = template_override {
+            Template::render(template_override, layout_context)
+        } else {
+            Template::render(tmpl, layout_context)
+        }.respond_to(req)
+    }
+}
+
 #[derive(Responder)]
 pub enum MyResponse {
     #[response(status = 200, content_type = "html")]
-    Success(Template),
+    Success(HagridTemplate),
     #[response(status = 200, content_type = "plain")]
     Plain(String),
+    #[response(status = 200, content_type = "xml")]
+    Xml(HagridTemplate),
     #[response(status = 200, content_type = "application/pgp-keys")]
     Key(String, ContentDisposition),
     #[response(status = 200, content_type = "application/pgp-keys")]
@@ -52,11 +77,11 @@ pub enum MyResponse {
     #[response(status = 500, content_type = "html")]
     ServerError(Template),
     #[response(status = 404, content_type = "html")]
-    NotFound(Template),
+    NotFound(HagridTemplate),
     #[response(status = 404, content_type = "html")]
     NotFoundPlain(String),
     #[response(status = 400, content_type = "html")]
-    BadRequest(Template),
+    BadRequest(HagridTemplate),
     #[response(status = 400, content_type = "html")]
     BadRequestPlain(String),
     #[response(status = 503, content_type = "html")]
@@ -68,8 +93,19 @@ pub enum MyResponse {
 }
 
 impl MyResponse {
-    pub fn ok<S: Serialize>(tmpl: &'static str, ctx: S) -> Self {
-        MyResponse::Success(Template::render(tmpl, ctx))
+    pub fn ok(tmpl: &'static str, ctx: impl Serialize) -> Self {
+        let context_json = serde_json::to_value(ctx).unwrap();
+        MyResponse::Success(HagridTemplate(tmpl, context_json))
+    }
+
+    pub fn ok_bare(tmpl: &'static str) -> Self {
+        let context_json = serde_json::to_value(templates::Bare { dummy: () }).unwrap();
+        MyResponse::Success(HagridTemplate(tmpl, context_json))
+    }
+
+    pub fn xml(tmpl: &'static str) -> Self {
+        let context_json = serde_json::to_value(templates::Bare { dummy: () }).unwrap();
+        MyResponse::Xml(HagridTemplate(tmpl, context_json))
     }
 
     pub fn plain(s: String) -> Self {
@@ -109,21 +145,19 @@ impl MyResponse {
 
     pub fn ise(e: failure::Error) -> Self {
         eprintln!("Internal error: {:?}", e);
-        let ctx = templates::FiveHundred{
+        let ctx = templates::FiveHundred {
             internal_error: e.to_string(),
             version: env!("VERGEN_SEMVER").to_string(),
             commit: env!("VERGEN_SHA_SHORT").to_string(),
+            lang: "en".to_string(),
         };
         MyResponse::ServerError(Template::render("500", ctx))
     }
 
     pub fn bad_request(template: &'static str, e: failure::Error) -> Self {
-        let ctx = templates::General {
-            error: Some(format!("{}", e)),
-            version: env!("VERGEN_SEMVER").to_string(),
-            commit: env!("VERGEN_SHA_SHORT").to_string(),
-        };
-        MyResponse::BadRequest(Template::render(template, ctx))
+        let ctx = templates::Error { error: format!("{}", e) };
+        let context_json = serde_json::to_value(ctx).unwrap();
+        MyResponse::BadRequest(HagridTemplate(template, context_json))
     }
 
     pub fn bad_request_plain(message: impl Into<String>) -> Self {
@@ -136,62 +170,57 @@ impl MyResponse {
 
     pub fn not_found(
         tmpl: Option<&'static str>,
-        message: impl Into<Option<String>>
+        message: impl Into<Option<String>>,
     ) -> Self {
-        MyResponse::NotFound(
-            Template::render(
-                tmpl.unwrap_or("index"),
-                templates::General::new(
-                    Some(message.into()
-                         .unwrap_or_else(|| "Key not found".to_owned())))))
+        let ctx = templates::Error { error: message.into()
+                         .unwrap_or_else(|| "Key not found".to_owned()) };
+        let context_json = serde_json::to_value(ctx).unwrap();
+        MyResponse::NotFound(HagridTemplate(tmpl.unwrap_or("index"), context_json))
     }
 }
 
 mod templates {
+    use super::{I18n, RequestOrigin};
+
     #[derive(Serialize)]
     pub struct FiveHundred {
         pub internal_error: String,
         pub commit: String,
         pub version: String,
+        pub lang: String,
     }
 
     #[derive(Serialize)]
-    pub struct General {
+    pub struct HagridLayout<T: serde::Serialize> {
         pub error: Option<String>,
         pub commit: String,
         pub version: String,
+        pub base_uri: String,
+        pub lang: String,
+        pub page: T,
     }
 
     #[derive(Serialize)]
-    pub struct About {
-        pub base_uri: String,
-        pub commit: String,
-        pub version: String,
+    pub struct Error {
+        pub error: String,
     }
 
-    impl About {
-        pub fn new(base_uri: impl Into<String>) -> Self {
+    #[derive(Serialize)]
+    pub struct Bare {
+        // Dummy value to make sure {{#with page}} always passes
+        pub dummy: (),
+    }
+
+    impl<T: serde::Serialize> HagridLayout<T> {
+        pub fn new(page: T, i18n: I18n, origin: RequestOrigin) -> Self {
             Self {
-                base_uri: base_uri.into(),
+                error: None,
                 version: env!("VERGEN_SEMVER").to_string(),
                 commit: env!("VERGEN_SHA_SHORT").to_string(),
+                base_uri: origin.get_base_uri().to_string(),
+                page: page,
+                lang: i18n.lang.to_string(),
             }
-        }
-    }
-
-    impl General {
-        pub fn new(error: Option<String>) -> Self {
-            Self {
-                error: error,
-                version: env!("VERGEN_SEMVER").to_string(),
-                commit: env!("VERGEN_SHA_SHORT").to_string(),
-            }
-        }
-    }
-
-    impl Default for General {
-        fn default() -> Self {
-            Self::new(None)
         }
     }
 }
@@ -275,47 +304,54 @@ fn files(file: PathBuf, state: rocket::State<HagridState>) -> Option<NamedFile> 
 }
 
 #[get("/")]
-fn root() -> Template {
-    Template::render("index", templates::General::default())
+fn root() -> MyResponse {
+    MyResponse::ok_bare("index")
 }
 
 #[get("/about")]
-fn about() -> Template {
-    Template::render("about/about", templates::General::default())
+fn about() -> MyResponse {
+    MyResponse::ok_bare("about/about")
 }
 
 #[get("/about/news")]
-fn news() -> Template {
-    Template::render("about/news", templates::General::default())
+fn news() -> MyResponse {
+    MyResponse::ok_bare("about/news")
+}
+
+#[get("/atom.xml")]
+fn news_atom() -> MyResponse {
+    MyResponse::xml("atom")
 }
 
 #[get("/about/faq")]
-fn faq() -> Template {
-    Template::render("about/faq", templates::General::default())
+fn faq() -> MyResponse {
+    MyResponse::ok_bare("about/faq")
 }
 
 #[get("/about/usage")]
-fn usage(state: rocket::State<HagridState>) -> Template {
-    Template::render("about/usage", templates::About::new(state.base_uri.clone()))
+fn usage() -> MyResponse {
+    MyResponse::ok_bare("about/usage")
 }
 
 #[get("/about/privacy")]
-fn privacy() -> Template {
-    Template::render("about/privacy", templates::General::default())
+fn privacy() -> MyResponse {
+    MyResponse::ok_bare("about/privacy")
 }
 
 #[get("/about/api")]
-fn apidoc() -> Template {
-    Template::render("about/api", templates::General::default())
+fn apidoc() -> MyResponse {
+    MyResponse::ok_bare("about/api")
 }
 
 #[get("/about/stats")]
-fn stats() -> Template {
-    Template::render("about/stats", templates::General::default())
+fn stats() -> MyResponse {
+    MyResponse::ok_bare("about/stats")
 }
 
 #[get("/errors/<code>/<template>")]
 fn errors(
+    i18n: I18n,
+    origin: RequestOrigin,
     code: u16,
     template: String,
 ) -> Result<Custom<Template>> {
@@ -326,7 +362,7 @@ fn errors(
         .ok_or(failure::err_msg("bad request"))?;
     let response_body = Template::render(
         format!("errors/{}-{}", code, template),
-        templates::General::default()
+        templates::HagridLayout::new(templates::Bare{dummy: ()}, i18n, origin)
     );
     Ok(Custom(status_code, response_body))
 }
@@ -335,12 +371,15 @@ pub fn serve() -> Result<()> {
     Err(rocket_factory(rocket::ignite())?.launch().into())
 }
 
+compile_i18n!();
+
 fn rocket_factory(mut rocket: rocket::Rocket) -> Result<rocket::Rocket> {
     let routes = routes![
         // infra
         root,
         about,
         news,
+        news_atom,
         privacy,
         apidoc,
         faq,
@@ -392,18 +431,26 @@ fn rocket_factory(mut rocket: rocket::Rocket) -> Result<rocket::Rocket> {
     let mail_service = configure_mail_service(rocket.config())?;
     let rate_limiter = configure_rate_limiter(rocket.config())?;
     let maintenance_mode = configure_maintenance_mode(rocket.config())?;
+    let localized_template_list = configure_localized_template_list(rocket.config())?;
+    println!("{:?}", localized_template_list);
 
     let prometheus = configure_prometheus(rocket.config());
 
     rocket = rocket
-       .attach(Template::fairing())
+       .attach(Template::custom(|engines: &mut Engines| {
+           let i18ns = include_i18n!();
+           let i18n_helper = I18NHelper::new(i18ns);
+           engines.handlebars.register_helper("text", Box::new(i18n_helper));
+       }))
        .attach(maintenance_mode)
+       .manage(include_i18n!())
        .manage(hagrid_state)
        .manage(stateless_token_service)
        .manage(stateful_token_service)
        .manage(mail_service)
        .manage(db_service)
        .manage(rate_limiter)
+       .manage(localized_template_list)
        .mount("/", routes);
 
     if let Some(prometheus) = prometheus {
@@ -470,31 +517,18 @@ fn configure_stateless_token_service(config: &Config) -> Result<tokens::Service>
 
 fn configure_mail_service(config: &Config) -> Result<mail::Service> {
     // Mail service
-    let template_dir: PathBuf = config.get_str("template_dir")?.into();
+    let email_template_dir: PathBuf = config.get_str("email_template_dir")?.into();
+
     let base_uri = config.get_str("base-URI")?.to_string();
     let from = config.get_str("from")?.to_string();
-    let verify_html = template_dir.join("email/publish-html.hbs");
-    let verify_txt = template_dir.join("email/publish-txt.hbs");
-    let manage_html = template_dir.join("email/manage-html.hbs");
-    let manage_txt = template_dir.join("email/manage-txt.hbs");
-    let welcome_html = template_dir.join("email/welcome-html.hbs");
-    let welcome_txt = template_dir.join("email/welcome-txt.hbs");
-
-    let mut handlebars = Handlebars::new();
-    handlebars.register_template_file("verify-html", verify_html)?;
-    handlebars.register_template_file("verify-txt", verify_txt)?;
-    handlebars.register_template_file("manage-html", manage_html)?;
-    handlebars.register_template_file("manage-txt", manage_txt)?;
-    handlebars.register_template_file("welcome-html", welcome_html)?;
-    handlebars.register_template_file("welcome-txt", welcome_txt)?;
 
     let filemail_into = config.get_str("filemail_into")
         .ok().map(|p| PathBuf::from(p));
 
     if let Some(path) = filemail_into {
-        mail::Service::filemail(from, base_uri, handlebars, path)
+        mail::Service::filemail(from, base_uri, email_template_dir, path)
     } else {
-        mail::Service::sendmail(from, base_uri, handlebars)
+        mail::Service::sendmail(from, base_uri, email_template_dir)
     }
 }
 
@@ -502,6 +536,11 @@ fn configure_rate_limiter(config: &Config) -> Result<RateLimiter> {
     let timeout_secs = config.get_int("mail_rate_limit").unwrap_or(60);
     let timeout_secs = timeout_secs.try_into()?;
     Ok(RateLimiter::new(timeout_secs))
+}
+
+fn configure_localized_template_list(config: &Config) -> Result<TemplateOverrides> {
+    let template_dir: PathBuf = config.get_str("template_dir")?.into();
+    TemplateOverrides::load(&template_dir, "localized")
 }
 
 fn configure_maintenance_mode(config: &Config) -> Result<MaintenanceMode> {
@@ -567,6 +606,9 @@ pub mod tests {
             .extra("template_dir",
                    ::std::env::current_dir().unwrap().join("dist/templates")
                    .to_str().unwrap())
+            .extra("email_template_dir",
+                   ::std::env::current_dir().unwrap().join("dist/email-templates")
+                   .to_str().unwrap())
             .extra("assets_dir",
                    ::std::env::current_dir().unwrap().join("dist/assets")
                    .to_str().unwrap())
@@ -597,6 +639,22 @@ pub mod tests {
     pub fn assert_consistency(rocket: &rocket::Rocket) {
         let db = rocket.state::<KeyDatabase>().unwrap();
         db.check_consistency().unwrap();
+    }
+
+    #[test]
+    fn about_translation() {
+        let (_tmpdir, config) = configuration().unwrap();
+        let rocket = rocket_factory(rocket::custom(config)).unwrap();
+        let client = Client::new(rocket).expect("valid rocket instance");
+
+        // Check that we see the landing page.
+        let mut response = client.get("/about")
+            .header(Header::new("Accept-Language", "de"))
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(response.content_type(), Some(ContentType::HTML));
+        // TODO check translation
+        assert!(response.body_string().unwrap().contains("Hagrid"));
     }
 
     #[test]
@@ -707,7 +765,7 @@ pub mod tests {
         check_hr_responses_by_fingerprint(&client, &tpk, 0);
 
         // Check the verification link
-        check_verify_link(&client, &token, "foo@invalid.example.com");
+        check_verify_link(&client, &token, "foo@invalid.example.com", "");
 
         // Now check for the verification mail.
         check_mails_and_verify_email(&client, filemail_into.as_path());
@@ -735,6 +793,26 @@ pub mod tests {
         check_hr_responses_by_fingerprint(&client, &tpk, 0);
 
         assert_consistency(client.rocket());
+    }
+
+    #[test]
+    fn upload_verify_lang() {
+        let (tmpdir, client) = client().unwrap();
+        let filemail_into = tmpdir.path().join("filemail");
+
+        // Generate a key and upload it.
+        let (tpk, _) = TPKBuilder::autocrypt(
+            None, Some("foo@invalid.example.com"))
+            .generate().unwrap();
+
+        let mut tpk_serialized = Vec::new();
+        tpk.serialize(&mut tpk_serialized).unwrap();
+        let token = vks_publish_submit_get_token(&client, &tpk_serialized);
+
+        check_verify_link(&client, &token, "foo@invalid.example.com", "de");
+        let mail_content = pop_mail(&filemail_into).unwrap().unwrap();
+        assert!(mail_content.contains("dies ist eine automatisierte Nachricht"));
+        assert!(mail_content.contains("Subject: =?utf-8?q?Best=C3=A4tige?= foo@invalid.example.com\r\n\t=?utf-8?q?f=C3=BCr?= deinen =?utf-8?q?Schl=C3=BCssel?= auf local.connection"));
     }
 
     #[test]
@@ -811,7 +889,7 @@ pub mod tests {
         check_hr_responses_by_fingerprint(&client, &tpk_2, 0);
 
         // Check the verification link
-        check_verify_link(&client, &token_1, "foo@invalid.example.com");
+        check_verify_link(&client, &token_1, "foo@invalid.example.com", "");
         check_verify_link_json(&client, &token_2, "bar@invalid.example.com");
 
         // Now check for the verification mails.
@@ -1068,7 +1146,7 @@ pub mod tests {
             &tpk, nr_uids);
     }
 
-    fn check_verify_link(client: &Client, token: &str, address: &str) {
+    fn check_verify_link(client: &Client, token: &str, address: &str, lang: &'static str) {
         let encoded = ::url::form_urlencoded::Serializer::new(String::new())
             .append_pair("token", token)
             .append_pair("address", address)
@@ -1076,6 +1154,7 @@ pub mod tests {
 
         let response = client.post("/upload/request-verify")
             .header(ContentType::Form)
+            .header(Header::new("Accept-Language", lang))
             .body(encoded.as_bytes())
             .dispatch();
         assert_eq!(response.status(), Status::Ok);
@@ -1112,7 +1191,6 @@ pub mod tests {
 
     fn pop_mail_capture_pattern(filemail_path: &Path, pattern: &str) -> String {
         let mail_content = pop_mail(filemail_path).unwrap().unwrap();
-        println!("{}", mail_content);
 
         let capture_re = regex::bytes::Regex::new(pattern).unwrap();
         let capture_content = capture_re.captures(mail_content.as_ref()).unwrap()
@@ -1129,7 +1207,8 @@ pub mod tests {
                 let fh = fs::File::open(entry.path())?;
                 fs::remove_file(entry.path())?;
                 let mail: SerializableEmail = ::serde_json::from_reader(fh)?;
-                return Ok(Some(String::from_utf8_lossy(&mail.message).to_string()));
+                let body = String::from_utf8_lossy(&mail.message).to_string();
+                return Ok(Some(body));
             }
         }
         Ok(None)
