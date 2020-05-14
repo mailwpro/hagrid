@@ -180,20 +180,13 @@ pub fn test_uid_verification(db: &mut impl Database, log_path: &Path) {
 
     // publish w/ one uid less
     {
-        let packets =
-            tpk.clone().into_packet_pile().into_children().filter(|pkt| {
-                match pkt {
-                    Packet::UserID(ref uid) => *uid != uid1,
-                    _ => true,
-                }
-            });
-        let pile : PacketPile = packets.collect::<Vec<Packet>>().into();
-        let short_tpk = Cert::from_packet_pile(pile).unwrap();
+        let short_tpk = cert_without_uid(tpk.clone(), &uid1);
 
         let tpk_status = db.merge(short_tpk).unwrap().into_tpk_status();
         assert_eq!(TpkStatus {
             is_revoked: false,
             email_status: vec!(
+                (email1.clone(), EmailAddressStatus::Published),
                 (email2.clone(), EmailAddressStatus::Published),
             ),
             unparsed_uids: 0,
@@ -870,7 +863,9 @@ pub fn test_same_email_1(db: &mut impl Database, log_path: &Path) {
 }
 
 // If a key has multiple user ids with the same email address, make
-// sure things still work.
+// sure things still work. We do this twice (see above), to
+// make sure the order isn't relevant when revoking one user id
+// but leaving the other.
 pub fn test_same_email_2(db: &mut impl Database, log_path: &Path) {
     use std::{thread, time};
 
@@ -935,12 +930,123 @@ pub fn test_same_email_2(db: &mut impl Database, log_path: &Path) {
     }, tpk_status);
 
     // fetch by both user ids.  We should still get both user ids.
-    // TODO should this still deliver uid2.clone()?
-    assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
-               vec![ uid1.clone() ]);
     assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
                vec![ uid1.clone() ]);
 }
+
+// If a key has multiple user ids with the same email address, make
+// sure things still work. We do this twice (see above), to
+// make sure the order isn't relevant when revoking one user id
+// but leaving the other.
+pub fn test_same_email_3(db: &mut impl Database, log_path: &Path) {
+    use std::{thread, time};
+
+    let str_uid1 = "A <test@example.com>";
+    let str_uid2 = "B <test@example.com>";
+    let tpk = CertBuilder::new()
+        .add_userid(str_uid1)
+        .add_userid(str_uid2)
+        .generate()
+        .unwrap()
+        .0;
+    let uid1 = UserID::from(str_uid1);
+    let uid2 = UserID::from(str_uid2);
+    let email = Email::from_str(str_uid1).unwrap();
+    let fpr = Fingerprint::try_from(tpk.fingerprint()).unwrap();
+
+    // upload key
+    let tpk_status = db.merge(tpk.clone()).unwrap().into_tpk_status();
+    check_log_entry(log_path, &fpr);
+
+    // verify uid1
+    assert_eq!(TpkStatus {
+        is_revoked: false,
+        email_status: vec!(
+            (email.clone(), EmailAddressStatus::NotPublished),
+        ),
+        unparsed_uids: 0,
+    }, tpk_status);
+    db.set_email_published(&fpr, &tpk_status.email_status[0].0).unwrap();
+
+    // fetch by both user ids.
+    assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
+               vec![ uid1.clone(), uid2.clone() ]);
+
+    thread::sleep(time::Duration::from_secs(2));
+
+    // revoke one uid
+    let sig = {
+        let uid = tpk.userids()
+            .with_policy(&*POLICY, None)
+            .find(|b| *b.userid() == uid1).unwrap();
+        assert_eq!(RevocationStatus::NotAsFarAsWeKnow, uid.revoked());
+
+        let mut keypair = tpk.primary_key().bundle().key().clone()
+            .mark_parts_secret().unwrap()
+            .into_keypair().unwrap();
+        UserIDRevocationBuilder::new()
+            .set_reason_for_revocation(ReasonForRevocation::UIDRetired, b"It was the maid :/").unwrap()
+            .build(&mut keypair, &tpk, uid.userid(), None)
+            .unwrap()
+    };
+    assert_eq!(sig.typ(), SignatureType::CertificationRevocation);
+    let tpk = tpk.merge_packets(vec![sig.into()]).unwrap();
+    let tpk_status = db.merge(tpk).unwrap().into_tpk_status();
+    check_log_entry(log_path, &fpr);
+    assert_eq!(TpkStatus {
+        is_revoked: false,
+        email_status: vec!(
+            (email.clone(), EmailAddressStatus::Published),
+        ),
+        unparsed_uids: 0,
+    }, tpk_status);
+
+    // fetch by both user ids.  We should still get both user ids.
+    assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
+               vec![ uid2.clone() ]);
+}
+
+// If a key has a verified email address, make sure newly uploaded user
+// ids with the same email are published as well.
+pub fn test_same_email_4(db: &mut impl Database, log_path: &Path) {
+    let str_uid1 = "A <test@example.com>";
+    let str_uid2 = "B <test@example.com>";
+    let tpk = CertBuilder::new()
+        .add_userid(str_uid1)
+        .add_userid(str_uid2)
+        .generate()
+        .unwrap()
+        .0;
+    let uid1 = UserID::from(str_uid1);
+    let uid2 = UserID::from(str_uid2);
+    let email = Email::from_str(str_uid1).unwrap();
+    let fpr = Fingerprint::try_from(tpk.fingerprint()).unwrap();
+
+    let cert_uid_1 = cert_without_uid(tpk.clone(), &uid2);
+    let cert_uid_2 = cert_without_uid(tpk.clone(), &uid1);
+
+    // upload key
+    let tpk_status = db.merge(cert_uid_1.clone()).unwrap().into_tpk_status();
+    check_log_entry(log_path, &fpr);
+    db.set_email_published(&fpr, &tpk_status.email_status[0].0).unwrap();
+    assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
+               vec![ uid1.clone() ]);
+
+    let tpk_status = db.merge(cert_uid_2.clone()).unwrap().into_tpk_status();
+    check_log_entry(log_path, &fpr);
+    assert_eq!(TpkStatus {
+        is_revoked: false,
+        email_status: vec!(
+            (email.clone(), EmailAddressStatus::Published),
+        ),
+        unparsed_uids: 0,
+    }, tpk_status);
+
+    // fetch by both user ids.  We should still get both user ids.
+    assert_eq!(get_userids(&db.by_email(&email).unwrap()[..]),
+               vec![ uid1.clone(), uid2.clone() ]);
+}
+
 
 pub fn test_bad_uids(db: &mut impl Database, log_path: &Path) {
     let str_uid1 = "foo@bar.example <foo@bar.example>";
@@ -1011,4 +1117,16 @@ fn check_log_entry(log_path: &Path, fpr: &Fingerprint) {
         .last().unwrap();
     assert_eq!(last_entry, fpr.to_string());
 
+}
+
+fn cert_without_uid(cert: Cert, removed_uid: &UserID) -> Cert {
+    let packets =
+        cert.into_packet_pile().into_children().filter(|pkt| {
+            match pkt {
+                Packet::UserID(ref uid) => uid != removed_uid,
+                _ => true,
+            }
+        });
+    let pile : PacketPile = packets.collect::<Vec<Packet>>().into();
+    Cert::from_packet_pile(pile).unwrap()
 }
