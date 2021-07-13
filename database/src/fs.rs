@@ -16,6 +16,7 @@ use sync::FlockMutexGuard;
 use Result;
 
 use wkd;
+use updates::{Manifest, Epoch};
 
 use tempfile::NamedTempFile;
 
@@ -37,6 +38,8 @@ pub struct Filesystem {
     links_dir_by_keyid: PathBuf,
     links_dir_wkd_by_email: PathBuf,
     links_dir_by_email: PathBuf,
+
+    update_manifest_dir: PathBuf,
 
     dry_run: bool,
 }
@@ -102,6 +105,9 @@ impl Filesystem {
         create_dir_all(&links_dir_by_email)?;
         create_dir_all(&links_dir_wkd_by_email)?;
 
+        let update_manifest_dir = keys_external_dir.join("updates");
+        create_dir_all(&update_manifest_dir)?;
+
         info!("Opened filesystem database.");
         info!("keys_internal_dir: '{}'", keys_internal_dir.display());
         info!("keys_external_dir: '{}'", keys_external_dir.display());
@@ -121,6 +127,8 @@ impl Filesystem {
             links_dir_by_fingerprint,
             links_dir_by_email,
             links_dir_wkd_by_email,
+
+            update_manifest_dir,
 
             dry_run,
         })
@@ -343,22 +351,103 @@ impl Filesystem {
 
         Ok(())
     }
+
+    /// Returns the path to the key update logs.
+    pub fn keys_log_dir(&self) -> &Path {
+        &self.keys_dir_log
+    }
+
+    /// Returns the path to the Update Manifests.
+    pub fn update_manifest_dir(&self) -> &Path {
+        &self.update_manifest_dir
+    }
+
+    /// Returns the path to the Update Manifest.
+    pub fn update_manifest_path(&self, epoch: Epoch) -> PathBuf {
+        self.update_manifest_dir().join(epoch.to_string())
+    }
+
+    /// Opens the Update Manifest for the given epoch.
+    pub fn update_manifest_open(&self, epoch: Epoch) -> std::io::Result<File> {
+        Ok(File::open(self.update_manifest_path(epoch))?)
+    }
+
+    /// Atomically updates an Update Manifest.
+    ///
+    /// Returns true if the number of entries in the manifest changed.
+    pub fn update_manifest_replace(&self, manifest: Manifest)
+                                   -> Result<bool> {
+        // XXX: Locking.
+        use std::os::linux::fs::MetadataExt;
+
+        let mut epochs = manifest.epochs();
+        let first_epoch =
+            epochs.next().expect("manifest contains at least one epoch");
+        let path = self.update_manifest_path(first_epoch);
+        let old_size = File::open(&path)
+            .and_then(|f| f.metadata())
+            .map(|m| m.st_size())
+            .ok();
+
+        let changed = old_size.map(|s| {
+            // Get rid of the header, magic and two 32 bit epochs.
+            s.saturating_sub((Manifest::MAGIC.len() + 4 + 4) as u64)
+                / 4 // Divide by the size of a prefix.
+                != manifest.len() as u64
+        }).unwrap_or(true);
+
+        let mut tmp = tempfile::Builder::new()
+            .prefix("update")
+            .rand_bytes(16)
+            .tempfile_in(self.update_manifest_dir())?;
+        manifest.serialize(&mut tmp)?;
+        tmp.persist(path)?; // Atomically replaces path.
+        for e in epochs {
+            self.update_manifest_link_to(first_epoch, e)?;
+        }
+
+        Ok(changed)
+    }
+
+    /// Atomically links an Update Manifest to another.
+    pub fn update_manifest_link_to(&self, target: Epoch, name: Epoch)
+                                   -> Result<()> {
+        hardlink(&self.update_manifest_path(target),
+                 &self.update_manifest_path(name))
+    }
 }
 
 // Like `symlink`, but instead of failing if `symlink_name` already
 // exists, atomically update `symlink_name` to have `symlink_content`.
 fn symlink(symlink_content: &Path, symlink_name: &Path) -> Result<()> {
+    link(symlink_content, symlink_name, false)
+}
+
+/// Like `std::fs::hard_link`, but instead of failing if `name` already
+/// exists, atomically update `name` to link to `target`.
+fn hardlink(target: &Path, name: &Path) -> Result<()> {
+    link(target, name, true)
+}
+
+/// Like `std::fs::hard_link` or `symlink`, but instead of failing if
+/// `name` already exists, atomically update `name` to link to
+/// `target`.
+fn link(target: &Path, name: &Path, hardlink: bool) -> Result<()> {
     use std::os::unix::fs::{symlink};
 
-    let symlink_dir = ensure_parent(symlink_name)?.parent().unwrap();
+    let link_dir = ensure_parent(name)?.parent().unwrap();
     let tmp_dir = tempfile::Builder::new()
         .prefix("link")
         .rand_bytes(16)
-        .tempdir_in(symlink_dir)?;
-    let symlink_name_tmp = tmp_dir.path().join("link");
+        .tempdir_in(link_dir)?;
+    let name_tmp = tmp_dir.path().join("link");
 
-    symlink(&symlink_content, &symlink_name_tmp)?;
-    rename(&symlink_name_tmp, &symlink_name)?;
+    if hardlink {
+        std::fs::hard_link(&target, &name_tmp)?;
+    } else {
+        symlink(&target, &name_tmp)?;
+    }
+    rename(&name_tmp, &name)?;
     Ok(())
 }
 

@@ -22,6 +22,7 @@ use clap::{Arg, App, SubCommand};
 
 mod import;
 mod regenerate;
+mod updates;
 
 #[derive(Deserialize)]
 pub struct HagridConfigs {
@@ -73,7 +74,69 @@ fn main() -> Result<()> {
                                       .arg(Arg::with_name("keyring files")
                                            .required(true)
                                            .multiple(true)))
-                          .get_matches();
+        .subcommand(SubCommand::with_name("updates")
+                    .about("Manages Update Manifests")
+                    .subcommand(SubCommand::with_name("from-log")
+                                .about("Syncs key update log to \
+                                        Update Manifests")
+                                .arg(Arg::with_name("current-day")
+                                     .long("current-day")
+                                     .value_name("YYYY-mm-dd")
+                                     .default_value("today")
+                                     .help("Start syncing from this day \
+                                            working backwards"))
+                                .arg(Arg::with_name("current-epoch")
+                                     .long("current-epoch")
+                                     .value_name("EPOCH")
+                                     .default_value("current")
+                                     .help("Start from this epoch \
+                                            working backwards"))
+                                .arg(Arg::with_name("keep-going")
+                                     .long("keep-going")
+                                     .help("Keep going once we reached known \
+                                            history")))
+                    .subcommand(SubCommand::with_name("check")
+                                .about("Checks for consistency")
+                                .arg(Arg::with_name("current-epoch")
+                                     .long("current-epoch")
+                                     .value_name("EPOCH")
+                                     .default_value("current")
+                                     .help("Start from this epoch \
+                                            working backwards")))
+                    .subcommand(SubCommand::with_name("recover")
+                                .about("Recovers from inconsistencies, \
+                                        potentially truncating history")
+                                .arg(Arg::with_name("current-epoch")
+                                     .long("current-epoch")
+                                     .value_name("EPOCH")
+                                     .default_value("current")
+                                     .help("Start from this epoch \
+                                            working backwards")))
+                    .subcommand(SubCommand::with_name("compact")
+                                .about("Compacts Update Manifests by \
+                                        merging buckets")
+                                .arg(Arg::with_name("current-epoch")
+                                     .long("current-epoch")
+                                     .value_name("EPOCH")
+                                     .default_value("current")
+                                     .help("Start from this epoch \
+                                            working backwards")))
+                    .subcommand(SubCommand::with_name("gc")
+                                .about("Deletes all but the given number of \
+                                        Update Manifests")
+                                .arg(Arg::with_name("keep")
+                                     .long("keep")
+                                     .value_name("N")
+                                     .default_value("2048")
+                                     .help("Keep this many manifests, \
+                                            the default being roughly 2 years"))
+                                .arg(Arg::with_name("current-epoch")
+                                     .long("current-epoch")
+                                     .value_name("EPOCH")
+                                     .default_value("current")
+                                     .help("Start from this epoch \
+                                            working backwards"))))
+        .get_matches();
 
     let config_file = matches.value_of("config").unwrap_or("Rocket.toml");
     let config_data = fs::read_to_string(config_file).unwrap();
@@ -96,6 +159,40 @@ fn main() -> Result<()> {
         import::do_import(&config, dry_run, keyrings)?;
     } else if let Some(_matches) = matches.subcommand_matches("regenerate") {
         regenerate::do_regenerate(&config)?;
+    } else if let Some(matches) = matches.subcommand_matches("updates") {
+        let db = database::KeyDatabase::new_internal(
+            config.keys_internal_dir.as_ref().unwrap(),
+            config.keys_external_dir.as_ref().unwrap(),
+            config.tmp_dir.as_ref().unwrap(),
+            false,
+        )?;
+
+        match matches.subcommand() {
+            ("from-log",  Some(m)) => updates::from_log(
+                &db,
+                m.value_of("current-day").expect("has default"),
+                m.value_of("current-epoch").expect("has default").parse()?,
+                m.is_present("keep-going"),
+            )?,
+            ("check",  Some(m)) => updates::check(
+                &db,
+                m.value_of("current-epoch").expect("has default").parse()?,
+            )?,
+            ("recover",  Some(m)) => updates::recover(
+                &db,
+                m.value_of("current-epoch").expect("has default").parse()?,
+            )?,
+            ("compact",  Some(m)) => updates::compact(
+                &db,
+                m.value_of("current-epoch").expect("has default").parse()?,
+            )?,
+            ("gc",  Some(m)) => updates::gc(
+                &db,
+                m.value_of("current-epoch").expect("has default").parse()?,
+                m.value_of("keep").expect("has default").parse()?,
+            )?,
+            _ => unreachable!(),
+        }
     } else {
         println!("{}", matches.usage());
     }

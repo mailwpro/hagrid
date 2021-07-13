@@ -42,6 +42,7 @@ use types::{Email, Fingerprint, KeyID};
 
 pub mod wkd;
 pub mod sync;
+pub mod updates;
 
 mod fs;
 pub use self::fs::Filesystem as KeyDatabase;
