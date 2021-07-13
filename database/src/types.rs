@@ -135,6 +135,13 @@ impl FromStr for Fingerprint {
     }
 }
 
+impl Fingerprint {
+    /// Returns the fingerprint as slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KeyID([u8; 8]);
 
