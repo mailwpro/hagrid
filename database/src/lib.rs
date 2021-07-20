@@ -6,8 +6,6 @@ use std::str::FromStr;
 
 use openpgp::serialize::SerializeInto;
 
-use chrono::prelude::Utc;
-
 #[macro_use]
 extern crate anyhow;
 use anyhow::Result;
@@ -24,7 +22,6 @@ extern crate time;
 extern crate url;
 extern crate hex;
 extern crate walkdir;
-extern crate chrono;
 extern crate zbase32;
 
 use tempfile::NamedTempFile;
@@ -39,6 +36,7 @@ use openpgp::{
 
 pub mod types;
 use types::{Email, Fingerprint, KeyID};
+use updates::Epoch;
 
 pub mod wkd;
 pub mod sync;
@@ -347,7 +345,7 @@ pub trait Database: Sync + Send {
     }
 
     fn get_current_log_filename(&self) -> String {
-        Utc::now().format("%Y-%m-%d").to_string()
+        Epoch::current().expect("not the end of time").to_string()
     }
 
     fn get_tpk_status(&self, fpr_primary: &Fingerprint, known_addresses: &[Email]) -> Result<TpkStatus> {
