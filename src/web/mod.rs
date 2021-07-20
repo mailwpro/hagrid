@@ -1,4 +1,3 @@
-use rocket;
 use rocket::http::{Header, Status};
 use rocket::request;
 use rocket::outcome::Outcome;
@@ -30,6 +29,8 @@ use crate::database::{Database, KeyDatabase, Query};
 use crate::database::types::Fingerprint;
 use crate::Result;
 
+use crate::web::vks_updates::UpdateEpochCache;
+
 use std::convert::TryInto;
 
 mod hkp;
@@ -38,6 +39,7 @@ mod maintenance;
 mod vks;
 mod vks_web;
 mod vks_api;
+mod vks_updates;
 mod debug_web;
 
 use crate::web::maintenance::MaintenanceMode;
@@ -417,6 +419,8 @@ fn rocket_factory(mut rocket: rocket::Rocket) -> Result<rocket::Rocket> {
         vks_web::verify_confirm_form,
         vks_web::quick_upload,
         vks_web::quick_upload_proceed,
+        // Update Manifests
+        vks_updates::get_update_manifest,
         // Debug
         debug_web::debug_info,
         // HKP
@@ -443,6 +447,7 @@ fn rocket_factory(mut rocket: rocket::Rocket) -> Result<rocket::Rocket> {
     let rate_limiter = configure_rate_limiter(rocket.config())?;
     let maintenance_mode = configure_maintenance_mode(rocket.config())?;
     let localized_template_list = configure_localized_template_list(rocket.config())?;
+    let update_cache = UpdateEpochCache::new();
     println!("{:?}", localized_template_list);
 
     let prometheus = configure_prometheus(rocket.config());
@@ -462,6 +467,7 @@ fn rocket_factory(mut rocket: rocket::Rocket) -> Result<rocket::Rocket> {
        .manage(db_service)
        .manage(rate_limiter)
        .manage(localized_template_list)
+       .manage(update_cache)
        .mount("/", routes);
 
     if let Some(prometheus) = prometheus {
@@ -568,7 +574,7 @@ pub mod tests {
     use std::io::Write;
     use std::path::Path;
     use tempfile::{tempdir, TempDir};
-    use super::rocket;
+    use rocket;
     use rocket::local::{Client, LocalResponse};
     use rocket::http::Status;
     use rocket::http::ContentType;
