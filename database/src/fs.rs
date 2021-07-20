@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::{BufRead, BufReader}};
 use std::convert::TryFrom;
 use std::fs::{OpenOptions, File, create_dir_all, read_link, remove_file, rename, set_permissions, Permissions};
 use std::io::Write;
@@ -21,6 +21,8 @@ use tempfile::NamedTempFile;
 
 use openpgp::Cert;
 use openpgp_utils::POLICY;
+
+use crate::updates::Epoch;
 
 pub struct Filesystem {
     tmp_dir: PathBuf,
@@ -399,6 +401,35 @@ impl Database for Filesystem {
             .write_all(fingerprint_line.as_bytes())?;
 
         Ok(())
+    }
+
+    fn read_log_epoch(&self, epoch: Epoch) -> Result<Option<Vec<u32>>> {
+        if epoch >= Epoch::current().expect("before end of time") {
+            Err(anyhow!("Epoch must be in the past to read"))?;
+        }
+
+        let path = self.keys_dir_log.join(epoch.to_string());
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(_) => return Ok(None),
+        };
+        let mut result: Vec<u32> = Vec::new();
+        for (i, line) in BufReader::new(file).lines().enumerate() {
+            let line = line?;
+            let mut fields = line.split_whitespace();
+            // timestamp field - ignore
+            fields.next()
+                .ok_or_else(|| anyhow!("Malformed line {:?}:{}: {:?}", path, i + 1, line))?;
+            // fingerprint field
+            let field = fields.next()
+                .ok_or_else(|| anyhow!("Malformed line {:?}:{}: {:?}", path, i + 1, line))?;
+            // parse only the prefix
+            let prefix = u32::from_str_radix(&field[0..8], 16)
+                .map_err(|_| anyhow!("Malformed fingerprint in line {:?}:{}", path, i + 1))?;
+            result.push(prefix);
+        }
+        result.sort();
+        Ok(Some(result))
     }
 
     fn move_tmp_to_full(&self, file: NamedTempFile, fpr: &Fingerprint) -> Result<()> {

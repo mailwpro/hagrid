@@ -178,6 +178,8 @@ pub trait Database: Sync + Send {
     fn by_email(&self, email: &Email) -> Option<String>;
     fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>>;
 
+    fn read_log_epoch(&self, epoch: Epoch) -> Result<Option<Vec<u32>>>;
+
     /// Complex operation that updates a Cert in the database.
     ///
     /// 1. Merge new Cert with old, full Cert
