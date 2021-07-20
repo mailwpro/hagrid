@@ -1,16 +1,6 @@
-use std::{
-    collections::BTreeSet,
-    convert::{TryFrom, TryInto},
-    fmt,
-    io,
-    ops,
-};
+use std::{convert::{TryFrom, TryInto}, fmt, io, ops};
 
-use crate::{
-    types::{
-        Fingerprint,
-    },
-};
+use crate::types::Fingerprint;
 
 /// The number of seconds in one epoch.
 pub const SECONDS_PER_EPOCH: u64 = 1 << 15;
@@ -20,7 +10,7 @@ pub const SECONDS_PER_EPOCH: u64 = 1 << 15;
 pub struct Manifest {
     start: Epoch,
     end: Epoch,
-    prefixes: BTreeSet<u32>,
+    prefixes: Vec<u32>,
 }
 
 impl Manifest {
@@ -28,7 +18,7 @@ impl Manifest {
     pub const MAGIC: &'static [u8] = b"\xE4\x2B\xAF\xBD\xD5\x75\x77\x0A";
 
     /// Creates a new Update Manifest
-    pub fn new<S, E>(start: S, end: E)
+    pub fn new<S, E>(start: S, end: E, prefixes: Vec<u32>)
         -> anyhow::Result<Manifest>
     where
         S: Into<Epoch>,
@@ -40,7 +30,7 @@ impl Manifest {
             Ok(Manifest {
                 start,
                 end,
-                prefixes: Default::default(),
+                prefixes,
             })
         } else {
             Err(anyhow::anyhow!("End epoch predates start epoch"))
@@ -60,7 +50,7 @@ impl Manifest {
     /// that store only fingerprint prefixes, this may return false
     /// positives.
     pub fn contains(&self, fingerprint: &Fingerprint) -> bool {
-        self.prefixes.contains(&Self::prefix(fingerprint))
+        self.prefixes.binary_search(&Self::prefix(fingerprint)).is_ok()
     }
 
     /// Tests whether an epoch is included in the Update Manifest.
@@ -73,6 +63,11 @@ impl Manifest {
     pub fn epochs(&self) -> impl Iterator<Item = Epoch> {
         (self.start.0..self.end.0 + 1).into_iter()
             .map(|n| Epoch(n))
+    }
+
+    /// Returns the number of epochs in this manifest.
+    pub fn epoch_count(&self) -> u32 {
+        self.end.0 - self.start.0
     }
 
     /// Returns the start epoch.
@@ -91,20 +86,11 @@ impl Manifest {
         self.prefixes.len()
     }
 
-    /// Inserts a fingerprint into the Update Manifest.
-    pub fn insert(&mut self, fingerprint: &Fingerprint) {
-        self.prefixes.insert(Self::prefix(fingerprint));
-    }
-
-    /// Merges two Update Manifests into one.
-    pub fn merge(&self, other: &Self) -> Manifest {
-        Manifest {
-            start: self.start.min(other.start),
-            end: self.end.max(other.end),
-            prefixes: self.prefixes.iter().cloned()
-                .chain(other.prefixes.iter().cloned())
-                .collect(),
-          }
+    /// Writes the Update Manifest to a Vec<u8>
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(Self::MAGIC.len() + 4 + 4 + self.len() * 4);
+        self.serialize(&mut result).expect("Writing to pre-allocated vector cannot fail.");
+        result
     }
 
     /// Writes the Update Manifest to the given `io::Write`r.
@@ -138,7 +124,7 @@ impl Manifest {
                 anyhow::anyhow!("End epoch predates start epoch")));
         }
 
-        let mut prefixes = BTreeSet::default();
+        let mut prefixes = Vec::default();
         let mut prefix = [0; 4];
         'parse: loop {
             let mut read = 0;
@@ -155,7 +141,7 @@ impl Manifest {
 
                 read += n;
                 if read == 4 {
-                    prefixes.insert(u32::from_be_bytes(prefix.clone()));
+                    prefixes.push(u32::from_be_bytes(prefix.clone()));
                     continue 'parse;
                 }
             }
@@ -169,7 +155,7 @@ impl Manifest {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Epoch(u32);
 
 impl fmt::Display for Epoch {
@@ -215,15 +201,19 @@ impl Epoch {
         self.0.checked_add(1).map(|e| Epoch(e))
     }
 
+    /// Returns the start unix timestamp of this Epoch.
+    pub fn unix_start(&self) -> u64 {
+        self.0 as u64 * SECONDS_PER_EPOCH
+    }
+
     /// Returns an iterator over all epochs starting from this one to
-    /// `other`, in descending order, excluding `other`.
-    pub fn since(&self, other: Epoch)
+    /// `other`, in ascending order, excluding `other`.
+    pub fn until(&self, other: Epoch)
                  -> anyhow::Result<impl Iterator<Item = Epoch>> {
-        if other <= *self {
-            Ok((other.0 + 1..self.0).into_iter().rev().map(|e| Epoch(e)))
-        } else {
-            Err(anyhow::anyhow!("other is later than self"))
+        if *self > other {
+            return Err(anyhow::anyhow!("self is later than other"));
         }
+        Ok((self.0..other.0).into_iter().map(|e| Epoch(e)))
     }
 
     /// Writes the Epoch to the given `io::Write`r.
@@ -250,19 +240,25 @@ impl std::str::FromStr for Epoch {
     }
 }
 
-impl ops::Add<Epoch> for Epoch {
-    type Output = Self;
+impl From<Epoch> for time::Tm {
+    fn from(e: Epoch) -> time::Tm {
+        time::at_utc(time::Timespec::new(e.unix_start() as i64, 0))
+    }
+}
 
-    fn add(self, other: Epoch) -> Self {
-        Self(self.0 + other.0)
+impl ops::Add<Epoch> for Epoch {
+    type Output = i64;
+
+    fn add(self, other: Epoch) -> i64 {
+        (self.0 as i64) + (other.0 as i64)
     }
 }
 
 impl ops::Sub<Epoch> for Epoch {
-    type Output = Self;
+    type Output = i64;
 
-    fn sub(self, other: Epoch) -> Self {
-        Self(self.0 - other.0)
+    fn sub(self, other: Epoch) -> i64 {
+        (self.0 as i64) - (other.0 as i64)
     }
 }
 
@@ -289,40 +285,6 @@ mod tests {
     #[test]
     fn current_epoch() -> crate::Result<()> {
         let _ = Epoch::current()?;
-        Ok(())
-    }
-
-    #[test]
-    fn merge() -> crate::Result<()> {
-        let c = Epoch::current()?;
-
-        // End predates start.
-        assert!(Manifest::new(c - 1, c - 2).is_err());
-
-        let mut u_0 = Manifest::new(c - 1, c)?;
-        let mut u_1 = Manifest::new(c - 2, c - 1)?;
-
-        let neal: Fingerprint =
-            "8F17777118A33DDA9BA48E62AACB3243630052D9".parse()?;
-        let justus: Fingerprint =
-            "CBCD8F030588653EEDD7E2659B7DD433F254904A".parse()?;
-        let vincent: Fingerprint =
-            "D4AB192964F76A7F8F8A9B357BD18320DEADFA11".parse()?;
-
-        u_0.insert(&neal);
-        u_1.insert(&neal);
-        u_0.insert(&justus);
-        u_1.insert(&vincent);
-
-        let u_01 = u_0.merge(&u_1);
-
-        assert_eq!(u_01.start, c - 2);
-        assert_eq!(u_01.end, c);
-        assert_eq!(u_01.len(), 3);
-        assert!(u_01.contains(&neal));
-        assert!(u_01.contains(&justus));
-        assert!(u_01.contains(&vincent));
-
         Ok(())
     }
 
@@ -362,24 +324,6 @@ mod tests {
             \xea\x71\x54\x6a";
 
         Ok((start, end, vec![fp0, fp1, fp2, fp3, fp4], bytes))
-    }
-
-    #[test]
-    fn serialize() -> crate::Result<()> {
-        let (start, end, fingerprints, bytes) = sample_manifest()?;
-
-        let mut manifest = Manifest::new(start, end)?;
-        manifest.insert(&fingerprints[3]);
-        manifest.insert(&fingerprints[1]);
-        manifest.insert(&fingerprints[0]);
-        manifest.insert(&fingerprints[4]);
-        manifest.insert(&fingerprints[2]);
-
-        let mut buf = Vec::new();
-        manifest.serialize(&mut buf)?;
-        assert_eq!(&buf[..], bytes);
-
-        Ok(())
     }
 
     #[test]
