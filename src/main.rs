@@ -38,6 +38,7 @@ mod i18n_helpers;
 mod gettext_strings;
 mod web;
 mod template_helpers;
+mod merge_util;
 
 fn main() {
     if let Err(e) = web::serve() {
