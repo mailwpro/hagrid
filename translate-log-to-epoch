@@ -1,0 +1,17 @@
+#!/usr/bin/env zsh
+
+# this script translates hagrid's update logs from "per-day" format into "per-epoch" format.
+(( $# > 0 )) || { echo "Usage: $0 logfiles.." >&2; exit 1; }
+
+for f in "$@"; do
+	integer next_epoch_time=0
+	while read -r line; do
+		timestamp=${line%% *}
+		if (( timestamp >= next_epoch_time )); then
+			current_epoch=$(( timestamp / (1<<15) ))
+			next_epoch_time=$(( (current_epoch + 1) * (1<<15) ))
+			echo writing epoch $current_epoch
+		fi
+		echo $line >> $current_epoch
+	done < $f
+done
