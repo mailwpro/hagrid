@@ -45,6 +45,19 @@
     </li>
 
     <li>
+      <tt>GET /vks/v1/updates/&lt;EPOCH&gt;</tt>
+      <p>
+        Retrieves a <a href="https://gitlab.com/hagrid-keyserver/keystore-updates">keystore update manifest</a>
+        from the specified <tt>epoch</tt> to the latest completed one.
+        An update manifest contains fingerprint prefixes of keys that received updates
+        during the requested time span.
+        This can be used by a client to find which keys in its local storage have received updates in a single request.
+        The server will return an HTTP <tt>404</tt> error if there is no data for the given time span.
+        The returned data has a content-type of <code>application/pgp-keystore-update-manifest</code>.
+      </p>
+    </li>
+
+    <li>
       <tt>POST /vks/v1/upload</tt>
       <p>
         A single key may be submitted using a POST request to <tt>/vks/v1/upload</tt>.
