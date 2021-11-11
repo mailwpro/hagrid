@@ -2,6 +2,41 @@
 <div class="about">
     <center><h2><a href="/about">About</a> | News | <a href="/about/usage">Usage</a> | <a href="/about/faq">FAQ</a> | <a href="/about/stats">Stats</a> | <a href="/about/privacy">Privacy</a></h2></center>
 
+    <h2 id="2021-09-20-1pa3pc">
+      <div style="float: right; font-size: small; line-height: 2em;">2021-09-20 📅</div>
+      <a style="color: black;" href="/about/news#2021-09-20-1pa3pc">Support for third-party certification signatures</a>
+    </h2>
+
+    <p>
+        To address the <a href="https://lwn.net/Articles/792366/">certificate-flooding attacks</a>, Hagrid used to strip third-party certifications from certificates.
+        Simply stripping third-party certifications does solve the problem of certificate flooding, but at the cost of breaking authentication models that require third-party certifications.
+
+    <p>
+        Hagrid is designed around the notion of Certificate Sovereignty, i.e. giving the certificate holder control over what is published with the certificate.
+        In line with this, rather than stripping certifications, a more nuanced way of preventing the flooding attack is to allow the certificate holder to chose what certifications should be distributed.
+
+    <p>
+        dkg devised such a mechanism &mdash; nicknamed <a href="https://gitlab.com/dkg/draft-openpgp-abuse-resistant-keystore/-/blob/master/draft-dkg-openpgp-abuse-resistant-keystore.md#first-party-attested-third-party-certifications-fpatpc">1pa3pc</a> for first-party attested third-party certifications &mdash; and <a href="https://gitlab.com/openpgp-wg/rfc4880bis/-/blob/main/rfc4880bis.md#attested-certifications-attested-certifications">refined</a> it in cooperation with Vincent Breitmoser and Werner Koch in the OpenPGP IETF working group.
+        Even though client support for this is currently limited to Sequoia, DKGPG, and PGPy, we are confident that other OpenPGP implementations will follow as soon as abuse-resistant key servers serve attested certifications.
+
+    <p>
+        To that end, we're happy to announce that keys.openpgp.org now serves attested third-party certifications.
+	You can see an example of such a certificate with a certification <a href="https://keys.openpgp.org/search?q=noemi-melissa%40probier.email">here</a>.
+
+    <p>
+        This attestation has been created using Sequoia's low-level key management functions:
+
+        <pre>
+$ sq key attest-certifications &lt;mykey.pgp &gt;mykey.attested.pgp
+$ sq key extract-cert &lt;mykey.attested.pgp &gt;mycert.attested.pgp
+      </pre>
+
+        By uploading <tt>mycert.attested.pgp</tt> to keys.openpgp.org, the certificate holder agrees to the attested certifications being published.
+	Note: if the certificate receives additional certifications the key holder will also have to test to these for keys.openpgp.org to publish them.
+
+    <p>
+        Looking forward to transparent support in clients and a comeback of strong certification-based authentication models 🙌
+
     <h2 id="2019-11-12-celebrating-100k">
       <div style="float: right; font-size: small; line-height: 2em;">2019-11-12 📅</div>
       <a style="color: black;" href="/about/news#2019-11-12-celebrating-100k">Celebrating 100.000 verified addresses! 📈</a>
