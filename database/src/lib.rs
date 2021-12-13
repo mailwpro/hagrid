@@ -303,7 +303,7 @@ pub trait Database: Sync + Send {
         let fpr_not_linked = fpr_checks.into_iter().flatten();
 
         let full_tpk_tmp = self.write_to_temp(&tpk_to_string(&full_tpk_new)?)?;
-        let published_tpk_clean = tpk_clean(&published_tpk_new)?;
+        let published_tpk_clean = tpk_clean(published_tpk_new)?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         // these are very unlikely to fail. but if it happens,
@@ -453,7 +453,7 @@ pub trait Database: Sync + Send {
                 return Err(anyhow!("Requested UserID not found!"));
         }
 
-        let published_tpk_clean = tpk_clean(&published_tpk_new)?;
+        let published_tpk_clean = tpk_clean(published_tpk_new)?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         self.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;
@@ -536,7 +536,7 @@ pub trait Database: Sync + Send {
             .iter()
             .filter(|email| !published_emails_new.contains(email));
 
-        let published_tpk_clean = tpk_clean(&published_tpk_new)?;
+        let published_tpk_clean = tpk_clean(published_tpk_new)?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         self.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;

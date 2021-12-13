@@ -25,7 +25,7 @@ pub fn tpk_to_string(tpk: &Cert) -> Result<Vec<u8>> {
     tpk.armored().export_to_vec()
 }
 
-pub fn tpk_clean(tpk: &Cert) -> Result<Cert> {
+pub fn tpk_clean(tpk: Cert) -> Result<Cert> {
     // Iterate over the Cert, pushing packets we want to merge
     // into the accumulator.
     let mut acc = Vec::new();
