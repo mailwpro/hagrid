@@ -932,6 +932,14 @@ mod tests {
     }
 
     #[test]
+    fn mutual_certifications() -> Result<()> {
+        let (_tmp_dir, mut db, log_path) = open_db();
+        test::mutual_certifications(&mut db, &log_path)?;
+        db.check_consistency()?;
+        Ok(())
+    }
+
+    #[test]
     fn attested_key_signatures() -> Result<()> {
         let (_tmp_dir, mut db, log_path) = open_db();
         test::attested_key_signatures(&mut db, &log_path)?;
