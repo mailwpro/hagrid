@@ -1122,6 +1122,57 @@ pub fn test_no_selfsig(db: &mut impl Database, log_path: &Path) {
     }, tpk_status);
 }
 
+/// Makes sure that certificates cannot be spammed.
+pub fn spam_protection(db: &mut impl Database, log_path: &Path)
+                       -> Result<()> {
+    use std::time::{SystemTime, Duration};
+    use openpgp::{
+        types::*,
+    };
+    let t0 = SystemTime::now() - Duration::new(5 * 60, 0);
+    let t1 = SystemTime::now() - Duration::new(4 * 60, 0);
+
+    let (alice, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("alice@foo.org")
+        .generate()?;
+    let alices_fp = Fingerprint::try_from(alice.fingerprint())?;
+
+    let (spam, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("spam@foo.com")
+        .generate()?;
+    let spams_fp = Fingerprint::try_from(spam.fingerprint())?;
+    let mut spam_signer =
+        spam.primary_key().key().clone().parts_into_secret()?
+        .into_keypair()?;
+
+    // The spam certifies the binding between between alice and alice@foo.com.
+    let spam_certifies_alice =
+        alice.userids().nth(0).unwrap().userid().bind(
+            &mut spam_signer, &alice,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t1)?)?;
+    let alice = alice.insert_packets(vec![
+        Packet::from(spam_certifies_alice)])?;
+
+    // Import all certs.
+    db.merge(spam.clone())?;
+    check_log_entry(log_path, &spams_fp);
+    db.merge(alice.clone())?;
+    check_log_entry(log_path, &alices_fp);
+
+    // Confirm the email so that we can inspect the userid component.
+    db.set_email_published(&alices_fp, &Email::from_str("alice@foo.org")?)?;
+
+    // Check that the certification is stripped.
+    let alice_ = Cert::from_bytes(&db.by_fpr(&alices_fp).unwrap())?;
+    assert_eq!(alice_.bad_signatures().count(), 0);
+    assert_eq!(alice_.userids().nth(0).unwrap().certifications().count(), 0);
+    drop(alice_);
+
+    Ok(())
+}
 /// Makes sure that attested key signatures are correctly handled.
 pub fn attested_key_signatures(db: &mut impl Database, log_path: &Path)
                                -> Result<()> {
