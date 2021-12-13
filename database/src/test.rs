@@ -1173,6 +1173,110 @@ pub fn spam_protection(db: &mut impl Database, log_path: &Path)
 
     Ok(())
 }
+
+/// Makes sure that mutual certifications are served.
+pub fn mutual_certifications(db: &mut impl Database, log_path: &Path)
+                             -> Result<()> {
+    use std::time::{SystemTime, Duration};
+    use openpgp::{
+        types::*,
+    };
+    let t0 = SystemTime::now() - Duration::new(5 * 60, 0);
+    let t1 = SystemTime::now() - Duration::new(4 * 60, 0);
+    let t2 = SystemTime::now() - Duration::new(3 * 60, 0);
+
+    let (alice, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("alice@foo.com")
+        .generate()?;
+    let alices_fp = Fingerprint::try_from(alice.fingerprint())?;
+    let mut alice_signer =
+        alice.primary_key().key().clone().parts_into_secret()?
+        .into_keypair()?;
+
+    let (bob, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("bob@bar.com")
+        .generate()?;
+    let bobs_fp = Fingerprint::try_from(bob.fingerprint())?;
+    let mut bob_signer =
+        bob.primary_key().key().clone().parts_into_secret()?
+        .into_keypair()?;
+
+    // Have Alice certify the binding between "bob@bar.com" and
+    // Bob's key.
+    let alice_certifies_bob =
+        bob.userids().nth(0).unwrap().userid().bind(
+            &mut alice_signer, &bob,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t1)?)?;
+    let alice_certifies_bob_again =
+        bob.userids().nth(0).unwrap().userid().bind(
+            &mut alice_signer, &bob,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t2)?)?;
+
+    // Have Bob certify the binding between "alice@foo.com" and
+    // Alice's key.
+    let bob_certifies_alice =
+        alice.userids().nth(0).unwrap().userid().bind(
+            &mut bob_signer, &alice,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t1)?)?;
+
+    // Now for the test.  First, import Bob's cert as is.
+    db.merge(bob.clone())?;
+    check_log_entry(log_path, &bobs_fp);
+
+    // Confirm the email so that we can inspect the userid component.
+    db.set_email_published(&bobs_fp, &Email::from_str("bob@bar.com")?)?;
+
+    // Then, add the certification, merge into the db, check that the
+    // certification is stripped.
+    let bob = bob.insert_packets(vec![
+        alice_certifies_bob.clone(),
+    ])?;
+    db.merge(bob.clone())?;
+    check_log_entry(log_path, &bobs_fp);
+    let bob_ = Cert::from_bytes(&db.by_fpr(&bobs_fp).unwrap())?;
+    assert_eq!(bob_.bad_signatures().count(), 0);
+    assert_eq!(bob_.userids().nth(0).unwrap().certifications().count(), 0);
+    drop(bob_);
+
+    // Now import Alice's key with Bob's certification.  Because the
+    // certification is mutual, we expect it to be served.
+    let alice = alice.insert_packets(vec![
+        bob_certifies_alice.clone(),
+    ])?;
+    db.merge(alice.clone())?;
+    check_log_entry(log_path, &alices_fp);
+
+    // Confirm the email so that we can inspect the userid component.
+    db.set_email_published(&alices_fp, &Email::from_str("alice@foo.com")?)?;
+
+    let alice_ = Cert::from_bytes(&db.by_fpr(&alices_fp).unwrap())?;
+    assert_eq!(alice_.bad_signatures().count(), 0);
+    assert_eq!(alice_.userids().nth(0).unwrap().certifications().count(), 1);
+    drop(alice_);
+
+    // Upload Bob's key again.  We need to add something so that
+    // Hagrid considers the certificate changed.
+    let bob = bob.insert_packets(vec![
+        alice_certifies_bob_again.clone(),
+    ])?;
+    db.merge(bob.clone())?;
+    check_log_entry(log_path, &bobs_fp);
+
+    let bob_ = Cert::from_bytes(&db.by_fpr(&bobs_fp).unwrap())?;
+    assert_eq!(bob_.bad_signatures().count(), 0);
+    assert_eq!(bob_.userids().nth(0).unwrap().certifications().count(), 2);
+    assert_eq!(bob_.userids().nth(0).unwrap().certifications()
+               .next().unwrap(), &alice_certifies_bob_again);
+    drop(bob_);
+
+    Ok(())
+}
+
 /// Makes sure that attested key signatures are correctly handled.
 pub fn attested_key_signatures(db: &mut impl Database, log_path: &Path)
                                -> Result<()> {
