@@ -1394,6 +1394,113 @@ pub fn attested_key_signatures(db: &mut impl Database, log_path: &Path)
     Ok(())
 }
 
+/// Makes sure that certifications issued by openpgp-ca are served.
+pub fn openpgp_ca_certifications(db: &mut impl Database, log_path: &Path)
+                                 -> Result<()> {
+    use std::time::{SystemTime, Duration};
+    use openpgp::{
+        types::*,
+    };
+    let t0 = SystemTime::now() - Duration::new(5 * 60, 0);
+    let t1 = SystemTime::now() - Duration::new(4 * 60, 0);
+
+    let (alice, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("alice@foo.com")
+        .add_userid("alice@foo.org")
+        .generate()?;
+    let alices_fp = Fingerprint::try_from(alice.fingerprint())?;
+    let mut alice_signer =
+        alice.primary_key().key().clone().parts_into_secret()?
+        .into_keypair()?;
+
+    let (ca, _) = CertBuilder::new()
+        .set_creation_time(t0)
+        .add_userid("openpgp-ca@foo.com")
+        .generate()?;
+    let cas_fp = Fingerprint::try_from(ca.fingerprint())?;
+    let mut ca_signer =
+        ca.primary_key().key().clone().parts_into_secret()?
+        .into_keypair()?;
+
+    // The ca certifies the binding between between alice and alice@foo.com.
+    let ca_certifies_alice_com =
+        alice.userids().nth(0).unwrap().userid().bind(
+            &mut ca_signer, &alice,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t1)?)?;
+
+    // The ca also certifies the binding between between alice and
+    // alice@foo.org, but it does not have the authority over foo.org.
+    let ca_certifies_alice_org =
+        alice.userids().nth(1).unwrap().userid().bind(
+            &mut ca_signer, &alice,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_signature_creation_time(t1)?)?;
+
+    // Alice tsigs the ca key.
+    let alice_tsigs_ca_uid =
+        ca.userids().nth(0).unwrap().userid().bind(
+            &mut alice_signer, &ca,
+            SignatureBuilder::new(SignatureType::GenericCertification)
+                .set_trust_signature(1, 120)?
+                .set_signature_creation_time(t1)?)?;
+    // Again, this time with a direct-key delegation.
+    let alice_tsigs_ca_direct =
+        SignatureBuilder::new(SignatureType::DirectKey)
+        .set_trust_signature(1, 120)?
+        .set_signature_creation_time(t1)?
+        .sign_direct_key(&mut alice_signer, ca.primary_key().key())?;
+
+    // First, import the ca key and confirm it.
+    db.merge(ca.clone())?;
+    check_log_entry(log_path, &cas_fp);
+    db.set_email_published(&cas_fp, &Email::from_str("openpgp-ca@foo.com")?)?;
+    // From now on, the ca key should be recognized as a CA.
+
+    // Alice gets certified.  As a result, the CA uploads Alice's
+    // certificate with the certification.
+    let alice = alice.insert_packets(vec![
+        Packet::from(ca_certifies_alice_com),
+        Packet::from(ca_certifies_alice_org),
+    ])?;
+
+    db.merge(alice.clone())?;
+    check_log_entry(log_path, &alices_fp);
+
+    // Confirm the email so that we can inspect the userid component.
+    db.set_email_published(&alices_fp, &Email::from_str("alice@foo.com")?)?;
+    db.set_email_published(&alices_fp, &Email::from_str("alice@foo.org")?)?;
+
+    // Check that the foo.com certification is served but the foo.org
+    // one is stripped because the ca doesn't have authority for that
+    // domain.
+    let alice_ = Cert::from_bytes(&db.by_fpr(&alices_fp).unwrap())?;
+    assert_eq!(alice_.bad_signatures().count(), 0);
+    assert_eq!(alice_.userids().nth(0).unwrap().userid().value(), b"alice@foo.com");
+    assert_eq!(alice_.userids().nth(0).unwrap().certifications().count(), 1);
+    assert_eq!(alice_.userids().nth(1).unwrap().userid().value(), b"alice@foo.org");
+    assert_eq!(alice_.userids().nth(1).unwrap().certifications().count(), 0);
+    drop(alice_);
+
+    // Now, Alice tsigns the CA.
+    let ca = ca.insert_packets(vec![
+        Packet::from(alice_tsigs_ca_uid),
+        Packet::from(alice_tsigs_ca_direct),
+    ])?;
+    db.merge(ca.clone())?;
+    check_log_entry(log_path, &cas_fp);
+
+    // Check that Alice's tsig are served.
+    let ca_ = Cert::from_bytes(&db.by_fpr(&cas_fp).unwrap())?;
+    assert_eq!(ca_.bad_signatures().count(), 0);
+    assert_eq!(ca_.primary_key().certifications().count(), 1);
+    assert_eq!(ca_.userids().nth(0).unwrap().certifications().count(), 1);
+    drop(ca_);
+
+    Ok(())
+}
+
 fn check_log_entry(log_path: &Path, fpr: &Fingerprint) {
     let log_data = fs::read_to_string(log_path).unwrap();
     let last_entry = log_data
