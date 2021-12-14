@@ -71,7 +71,7 @@ msgstr ""
 msgid "News:"
 msgstr ""
 
-msgid "<a href=\"/about/news#2019-11-12-celebrating-100k\">Celebrating 100.000 verified addresses! 📈</a> (2019-11-12)"
+msgid "<a href=\"/about/news#2021-09-20-1pa3pc\">Support for third-party certification signatures</a> (2021-09-21)"
 msgstr ""
 
 msgid "v{{ version }} built from"

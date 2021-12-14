@@ -13,7 +13,7 @@ fn _dummy() {
     t!("You can also <a href=\"/upload\">upload</a> or <a href=\"/manage\">manage</a> your key.");
     t!("Find out more <a href=\"/about\">about this service</a>.");
     t!("News:");
-    t!("<a href=\"/about/news#2019-11-12-celebrating-100k\">Celebrating 100.000 verified addresses! 📈</a> (2019-11-12)");
+    t!("<a href=\"/about/news#2021-09-20-1pa3pc\">Support for third-party certification signatures</a> (2021-09-21)");
     t!("v{{ version }} built from");
     t!("Powered by <a href=\"https://sequoia-pgp.org\">Sequoia-PGP</a>");
     t!("Background image retrieved from <a href=\"https://www.toptal.com/designers/subtlepatterns/subtle-grey/\">Subtle Patterns</a> under CC BY-SA 3.0");
