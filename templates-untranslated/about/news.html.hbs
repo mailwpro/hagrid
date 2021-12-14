@@ -1,6 +1,105 @@
 <div class="about">
     <center><h2><a href="/about">About</a> | News | <a href="/about/usage">Usage</a> | <a href="/about/faq">FAQ</a> | <a href="/about/stats">Stats</a> | <a href="/about/privacy">Privacy</a></h2></center>
 
+    <h2 id="2021-12-20-openpgp-ca">
+      <div style="float: right; font-size: small; line-height: 2em;">2021-12-20 📅</div>
+      <a style="color: black;" href="/about/news#2021-12-20-openpgp-ca">Adding support for third-party certifications to Hagrid</a>
+    </h2>
+  <p>
+    When we designed keys.openpgp.org, we wanted users to be in control
+    of their certificates.  That's one of the reasons that keys.openpgp.org
+    strips third-party certifications.  But certifications are useful, and
+    key servers are a convenient way to distribute them.  So, we're adding
+    support to Hagrid to distribute them while still keeping users in control.
+
+  <p>
+    Historically, when Alice signed Bob's certificate, and uploaded
+    the certification to a key server, the key server attached her
+    certification to Bob's certificate, and there was nothing that Bob could do
+    to remove it.
+
+  <p>
+    In general, attaching third-party certifications to the signed certificate
+    isn't really a problem.  If a certification is irrelevant, it is just ignored.
+    But this policy means that third parties can attach an arbitrary number of certifications
+    to Bob's key (see <a href="https://dkg.fifthhorseman.net/blog/openpgp-certificate-flooding.html">here</a> and <a href="https://gist.github.com/rjhansen/f716c3ff4a7068b50f2d8896e54e4b7e">here</a>).  Bob could get a lot of certifications if he is very popular.  Or,
+    an attacker could upload a lot of valid, but useless certifications.
+
+  <p>
+    We've identified three mechanisms that allow keys.openpgp.org to
+    distribute certifications while preventing these types of attacks.
+
+  <p>
+    <b>Support for 1pa3pc certifications</b>
+
+  <p>
+    First, a user can add a so-called <a href="https://gitlab.com/openpgp-wg/rfc4880bis/-/blob/main/rfc4880bis.md#attested-certifications-attested-certifications">1pa3pc signature</a> to their certificate.
+    This special signature allows the user to decide who is allowed to sign
+    their certificate.
+
+  <p>
+    Using 1pa3pc, if Bob is happy for keys.openpgp.org to distribute
+    signatures by Alice, then he adds Alice's key to his 1pa3pc signature.
+    When keys.openpgp.org sees that signature, it won't strip third-party certifications
+    from Alice, but it will strip other third-party certifications.  If an
+    attacker tries to flood Bob's key, the certifications will simply be ignored, since
+    they are not made by keys on Bob's good list.
+
+  <p>
+    Sequoia already makes it convenient to
+    add 1pa3pc packets, as this example shows:
+
+    <pre>
+    $ sq key attest-certifications &lt;mykey.pgp &gt;mykey.attested.pgp
+    $ sq key extract-cert &lt;mykey.attested.pgp &gt;mycert.attested.pgp
+    </pre>
+
+  <p>
+    We hope other tooling will add support for them
+    in the future.
+
+  <p>
+    <b>Support for OpenPGP CA certifications</b>
+
+  <p>
+    The second scenario where keys.openpgp.org distributes certifications
+    doesn't require the user to opt-in, which makes it much more convenient
+    for normal users.  This mode is designed for <a href="https://openpgp-ca.org">OpenPGP CA</a>, a new
+    tool that makes it easy for organizations to set up their own CA.
+
+  <p>
+    The problem that OpenPGP CA helps solve is how to do strong authentication. That is, how does Alice know that she has the right key for Bob?  Traditionally, when using PGP (or Signal, or any other tool that doesn't rely on central authorities), it is up to each individual user to make sure they use the right key for each of their correspondents.  One way do this with PGP is for users to check each of their correspondent's fingerprints.  In Signal, users need to check each other's safety numbers. This doesn’t scale.
+
+  <p>
+    OpenPGP CA's proposition is that often it is better for Alice to rely on a third party to check fingerprints on her behalf.  This is especially reasonable in many organizations where users already rely on their IT department to perform security relevant tasks for them. So, if Alice relies on her IT department to install updates on her machine, then she can just as well rely on them to perform these checks on her behalf. This doesn't only save Alice time and trouble, but the IT department staff is typically much better trained to perform such tasks safely and efficiently.
+
+  <p>
+    An organisation that uses OpenPGP CA has CA key with the User ID
+    <code>openpgp-ca@example.org</code>.
+    This key certifies all of the other keys in the organization.  Of course,
+    for these certifications to be useful, they need to be distributed.
+
+  <p>
+    To better support OpenPGP CA, keys.openpgp.org will
+    return certifications made by a User ID of the form <code>openpgp-ca@example.org</code>,
+    if this email address has been verified, and for User IDs in their own domain.  That is, the CA <code>openpgp-ca@example.org</code> is allowed to publish certifications for <code>alice@example.org</code>,
+    but not for <code>bob@other.org</code>.  Conversely, if <code>alice@example.org</code> certifies
+    <code>openpgp-ca@example.org</code>, keys.openpgp.org will also publish that certification.
+
+  <p>
+    It is still possible for someone to spam certificates with this mechanism.  For instance,
+    if an attacker registers <code>openpgp-ca@web.de</code>, they can issue a certification for every
+    certificate that has a <code>web.de</code> email address; we don't check that
+    <code>openpgp-ca@web.de</code> is a valid CA, we only check that the person who controls
+    that email address also controls the key.  However, our design only allows
+    the publication of one such gratuitous certification per User ID, which is far from a
+    denial-of-service attack.
+
+  <p>
+    OpenPGP CA also supports the concept of CA bridges where one
+    organization certifies another organization's CA.  These
+    certifications are supported if the certification is mutual.
+
     <h2 id="2019-11-12-celebrating-100k">
       <div style="float: right; font-size: small; line-height: 2em;">2019-11-12 📅</div>
       <a style="color: black;" href="/about/news#2019-11-12-celebrating-100k">Celebrating 100.000 verified addresses! 📈</a>
