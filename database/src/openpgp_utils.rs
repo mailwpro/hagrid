@@ -49,6 +49,19 @@ where
     for s in pk_bundle.self_revocations()  { acc.push(s.clone().into()) }
     for s in pk_bundle.other_revocations() { acc.push(s.clone().into()) }
 
+    // Keep symmetric certifications.  These are useful to delegate
+    // trust to a CA.
+    let (accepted, _rejected) =
+        filter_symmetric(db,
+                         &tpk,
+                         pk_bundle.certifications().iter().collect(),
+                         |mut s, other|
+                         s.verify_direct_key(&other.primary_key(),
+                                             &tpk.primary_key()).is_ok());
+    for s in accepted {
+        acc.push(s.clone().into());
+    }
+
     // The subkeys and related signatures.
     for skb in tpk.keys().subkeys() {
         acc.push(skb.key().clone().into());
@@ -80,6 +93,49 @@ where
             for s in vuid.attested_certifications() {
                 certifications.remove(s);
                 acc.push(s.clone().into());
+            }
+        }
+
+        // Keep the N most recent ones made by the domain's openpgp-ca.
+        if ! certifications.is_empty() {
+            if let Some(ca) = Email::try_from(userid).ok()
+                .map(|m| m.corresponding_openpgp_ca())
+                .and_then(|ca| db.by_email(&ca))
+                .and_then(|s| Cert::from_bytes(s.as_bytes()).ok())
+            {
+                let handle = ca.key_handle();
+                let mut ca_certifications = Vec::new();
+                for c in std::mem::take(&mut certifications) {
+                    // See if it is made by the CA.
+                    if c.get_issuers().iter().any(|i| i.aliases(&handle)) {
+                        // It is.
+                        ca_certifications.push(c);
+                    } else {
+                        // Try the next expensive method.
+                        certifications.insert(c);
+                    }
+                }
+
+                // Keep the most recent valid certification.
+                ca_certifications.sort_unstable_by_key(|s| {
+                    s.signature_creation_time().unwrap_or(std::time::UNIX_EPOCH)
+                });
+
+                let mut n = PUBLISH_N_MOST_RECENT_CERTIFICATIONS;
+                while let Some(last) = ca_certifications.pop() {
+                    // Check the signature.
+                    if last.clone().verify_userid_binding(&ca.primary_key(),
+                                                          &tpk.primary_key(),
+                                                          userid).is_ok()
+                    {
+                        // Checked out, include it.
+                        acc.push(last.clone().into());
+                        n -= 1;
+                        if n == 0 {
+                            break; // N are enough.
+                        }
+                    }
+                }
             }
         }
 
