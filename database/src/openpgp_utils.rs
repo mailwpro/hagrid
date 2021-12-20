@@ -203,6 +203,10 @@ where
             .and_then(|fp| db.by_fpr_full(&fp))
             .and_then(|s| Cert::from_bytes(s.as_bytes()).ok())
         {
+            // XXX: If we want certifications to not be considered if
+            // they involve unpublished identities, we need to
+            // restrict other to the published identities here.
+
             // Did we certify any of other's User IDs?
             if ! other.userids()
                 .any(|uidb| uidb.certifications()
