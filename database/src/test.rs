@@ -1183,7 +1183,6 @@ pub fn mutual_certifications(db: &mut impl Database, log_path: &Path)
     };
     let t0 = SystemTime::now() - Duration::new(5 * 60, 0);
     let t1 = SystemTime::now() - Duration::new(4 * 60, 0);
-    let t2 = SystemTime::now() - Duration::new(3 * 60, 0);
 
     let (alice, _) = CertBuilder::new()
         .set_creation_time(t0)
@@ -1210,11 +1209,6 @@ pub fn mutual_certifications(db: &mut impl Database, log_path: &Path)
             &mut alice_signer, &bob,
             SignatureBuilder::new(SignatureType::GenericCertification)
                 .set_signature_creation_time(t1)?)?;
-    let alice_certifies_bob_again =
-        bob.userids().nth(0).unwrap().userid().bind(
-            &mut alice_signer, &bob,
-            SignatureBuilder::new(SignatureType::GenericCertification)
-                .set_signature_creation_time(t2)?)?;
 
     // Have Bob certify the binding between "alice@foo.com" and
     // Alice's key.
@@ -1259,19 +1253,13 @@ pub fn mutual_certifications(db: &mut impl Database, log_path: &Path)
     assert_eq!(alice_.userids().nth(0).unwrap().certifications().count(), 1);
     drop(alice_);
 
-    // Upload Bob's key again.  We need to add something so that
-    // Hagrid considers the certificate changed.
-    let bob = bob.insert_packets(vec![
-        alice_certifies_bob_again.clone(),
-    ])?;
-    db.merge(bob.clone())?;
-    check_log_entry(log_path, &bobs_fp);
-
+    // Because the certification is mutual, we also expect Bob's key
+    // to have Alice's certification.
     let bob_ = Cert::from_bytes(&db.by_fpr(&bobs_fp).unwrap())?;
     assert_eq!(bob_.bad_signatures().count(), 0);
-    assert_eq!(bob_.userids().nth(0).unwrap().certifications().count(), 2);
+    assert_eq!(bob_.userids().nth(0).unwrap().certifications().count(), 1);
     assert_eq!(bob_.userids().nth(0).unwrap().certifications()
-               .next().unwrap(), &alice_certifies_bob_again);
+               .next().unwrap(), &alice_certifies_bob);
     drop(bob_);
 
     Ok(())
@@ -1489,7 +1477,10 @@ pub fn openpgp_ca_certifications(db: &mut impl Database, log_path: &Path)
         Packet::from(alice_tsigs_ca_direct),
     ])?;
     db.merge(ca.clone())?;
-    check_log_entry(log_path, &cas_fp);
+    // think it should, actually.
+    // Now Alice's key also has her @foo.org userid certified, because
+    // Alice and CA both certified each other.
+    check_log_entry(log_path, &alices_fp);
 
     // Check that Alice's tsig are served.
     let ca_ = Cert::from_bytes(&db.by_fpr(&cas_fp).unwrap())?;
@@ -1497,6 +1488,16 @@ pub fn openpgp_ca_certifications(db: &mut impl Database, log_path: &Path)
     assert_eq!(ca_.primary_key().certifications().count(), 1);
     assert_eq!(ca_.userids().nth(0).unwrap().certifications().count(), 1);
     drop(ca_);
+
+    // Now Alice's key also has her @foo.org userid certified, because
+    // Alice and CA both certified each other.
+    let alice_ = Cert::from_bytes(&db.by_fpr(&alices_fp).unwrap())?;
+    assert_eq!(alice_.bad_signatures().count(), 0);
+    assert_eq!(alice_.userids().nth(0).unwrap().userid().value(), b"alice@foo.com");
+    assert_eq!(alice_.userids().nth(0).unwrap().certifications().count(), 1);
+    assert_eq!(alice_.userids().nth(1).unwrap().userid().value(), b"alice@foo.org");
+    assert_eq!(alice_.userids().nth(1).unwrap().certifications().count(), 1);
+    drop(alice_);
 
     Ok(())
 }

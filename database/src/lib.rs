@@ -1,5 +1,6 @@
 #![recursion_limit = "1024"]
 
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -181,17 +182,75 @@ pub trait Database: Sync + Send {
 
     /// Complex operation that updates a Cert in the database.
     ///
+    /// Merging changes to a cert may cause other certs to be updated.
+    /// We maintain a queue of certs to update, releasing the lock
+    /// between updates as not to starve other merges.
+    ///
+    /// We return the result of the original merge.
+    fn merge(&self, new_tpk: Cert) -> Result<ImportResult> {
+        let mut boundary = Default::default();
+        let result = self.merge_recursive(new_tpk, false,
+                                          &mut boundary)?;
+        self.propagate_changes(boundary);
+        Ok(result)
+    }
+
+    /// Propagates changes recursively up to the given depth.
+    ///
+    /// Note: DO NOT call this function.
+    ///
+    /// Currently, we do not visit a node twice to avoid loops.
+    fn propagate_changes(&self,
+                         mut boundary: HashMap<openpgp::Fingerprint, Cert>)
+    {
+        // Keep track of visited nodes to make sure we don't walk in
+        // circles.
+        let mut visited = HashSet::<openpgp::Fingerprint>::default();
+
+        // How many steps from the source should the changes be
+        // propagated?  Currently, certs can only affect their
+        // neighbors, hence 1 step is enough.
+        let mut depth = 1;
+
+        while depth > 0 {
+            for (fp, cert) in std::mem::take(&mut boundary) {
+                if visited.contains(&fp) {
+                    continue;
+                }
+                visited.insert(fp);
+
+                let _ = self.merge_recursive(cert, true, &mut boundary);
+            }
+
+            depth -= 1;
+        }
+    }
+
+    /// Merges a single cert update into the database.
+    ///
+    /// Note: DO NOT call this function, use Database::merge instead.
+    ///
+    /// 0. First, the lock is acquired.
     /// 1. Merge new Cert with old, full Cert
-    ///    - if old full Cert == new full Cert, stop
+    ///    - If old full Cert == new full Cert, and `invalidate` is not
+    ///      true, stop.
     /// 2. Prepare new published Cert
     ///    - retrieve UserIDs from old published Cert
     ///    - create new Cert from full Cert by keeping only published UserIDs
+    ///    - During certification filtering, we may discover that
+    ///      other certs that need to be updated as well.  These certs
+    ///      will be put into the `boundary` and may be reconsidered.
     /// 3. Write full and published Cert to temporary files
     /// 4. Check for fingerprint and long key id collisions for published Cert
     ///    - abort if any problems come up!
     /// 5. Move full and published temporary Cert to their location
     /// 6. Update all symlinks
-    fn merge(&self, new_tpk: Cert) -> Result<ImportResult> {
+    fn merge_recursive(&self,
+                       new_tpk: Cert,
+                       invalidate: bool,
+                       boundary: &mut HashMap<openpgp::Fingerprint, Cert>)
+                       -> Result<ImportResult>
+    {
         let fpr_primary = Fingerprint::try_from(new_tpk.primary_key().fingerprint())?;
 
         let _lock = self.lock()?;
@@ -259,8 +318,13 @@ pub trait Database: Sync + Send {
         // the same address, we keep the first.
         email_status.dedup_by(|(e1, _), (e2, _)| e1 == e2);
 
-        // Abort if no changes were made
-        if full_tpk_unchanged {
+        // Abort if no changes were made with respect to the full copy
+        // of the certificate we saw before.  This is the cheapest way
+        // to shortcut the merge operation.  However, if invalidate is
+        // given, we want to keep going here and do the merge.  Later,
+        // we will compare the merged certificate to the already
+        // published version.
+        if full_tpk_unchanged && ! invalidate {
             return Ok(ImportResult::Unchanged(TpkStatus { is_revoked, email_status, unparsed_uids }));
         }
 
@@ -300,7 +364,8 @@ pub trait Database: Sync + Send {
         let fpr_not_linked = fpr_checks.into_iter().flatten();
 
         let full_tpk_tmp = self.write_to_temp(&tpk_to_string(&full_tpk_new)?)?;
-        let published_tpk_clean = tpk_clean(self, published_tpk_new)?;
+        let published_tpk_clean =
+            tpk_clean(self, published_tpk_new, Some(boundary))?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         // these are very unlikely to fail. but if it happens,
@@ -399,6 +464,27 @@ pub trait Database: Sync + Send {
 
     /// Complex operation that publishes some user id for a Cert already in the database.
     ///
+    /// Merging changes to a cert may cause other certs to be updated.
+    /// We maintain a queue of certs to update, releasing the lock
+    /// between updates as not to starve other merges.
+    ///
+    /// We return the result of the original merge.
+    fn set_email_published(&self, fpr_primary: &Fingerprint, email_new: &Email)
+                           -> Result<()>
+    {
+        let mut boundary = Default::default();
+        let result = self.set_email_published_recursive(fpr_primary,
+                                                        email_new,
+                                                        &mut boundary)?;
+        self.propagate_changes(boundary);
+        Ok(result)
+    }
+
+    /// Merges a single cert update into the database.
+    ///
+    /// Note: DO NOT call this function, use
+    /// Database::set_email_published instead.
+    ///
     /// 1. Load published Cert
     ///     - if UserID is already in, stop
     /// 2. Load full Cert
@@ -410,7 +496,12 @@ pub trait Database: Sync + Send {
     ///    - abort if any problems come up!
     /// 5. Move full and published temporary Cert to their location
     /// 6. Update all symlinks
-    fn set_email_published(&self, fpr_primary: &Fingerprint, email_new: &Email) -> Result<()> {
+    fn set_email_published_recursive(&self,
+                                     fpr_primary: &Fingerprint,
+                                     email_new: &Email,
+                                     boundary: &mut HashMap<openpgp::Fingerprint, Cert>)
+                                     -> Result<()>
+    {
         let _lock = self.lock()?;
 
         self.nolock_unlink_email_if_other(fpr_primary, email_new)?;
@@ -450,7 +541,8 @@ pub trait Database: Sync + Send {
                 return Err(anyhow!("Requested UserID not found!"));
         }
 
-        let published_tpk_clean = tpk_clean(self, published_tpk_new)?;
+        let published_tpk_clean = tpk_clean(self, published_tpk_new,
+                                            Some(boundary))?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         self.move_tmp_to_published(published_tpk_tmp, &fpr_primary)?;
@@ -533,7 +625,7 @@ pub trait Database: Sync + Send {
             .iter()
             .filter(|email| !published_emails_new.contains(email));
 
-        let published_tpk_clean = tpk_clean(self, published_tpk_new)?;
+        let published_tpk_clean = tpk_clean(self, published_tpk_new, None)?;
         let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         self.move_tmp_to_published(published_tpk_tmp, &fpr_primary)?;

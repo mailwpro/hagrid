@@ -1,5 +1,5 @@
 use openpgp::Result;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::convert::TryFrom;
 
 use openpgp::{
@@ -33,7 +33,9 @@ pub fn tpk_to_string(tpk: &Cert) -> Result<Vec<u8>> {
     tpk.armored().export_to_vec()
 }
 
-pub fn tpk_clean<D, M>(db: &D, tpk: Cert) -> Result<Cert>
+pub fn tpk_clean<D, M>(db: &D, tpk: Cert,
+                       mut boundary: Option<&mut HashMap<openpgp::Fingerprint, Cert>>)
+                       -> Result<Cert>
 where
     D: Database<MutexGuard = M>,
     D: ?Sized,
@@ -53,6 +55,7 @@ where
     // trust to a CA.
     let (accepted, _rejected) =
         filter_symmetric(db,
+                         &mut boundary,
                          &tpk,
                          pk_bundle.certifications().iter().collect(),
                          |mut s, other|
@@ -142,6 +145,7 @@ where
         // Keep symmetric certifications.
         let (accepted, _rejected) =
             filter_symmetric(db,
+                             &mut boundary,
                              &tpk,
                              certifications.into_iter().collect(),
                              |mut s, other|
@@ -157,6 +161,7 @@ where
 }
 
 fn filter_symmetric<'a, D, M, C>(db: &D,
+                                 boundary: &mut Option<&mut HashMap<openpgp::Fingerprint, Cert>>,
                                  us: &Cert,
                                  mut sigs: Vec<&'a Signature>,
                                  check: C)
@@ -205,7 +210,10 @@ where
         {
             // XXX: If we want certifications to not be considered if
             // they involve unpublished identities, we need to
-            // restrict other to the published identities here.
+            // restrict other to the published identities here.  If we
+            // do change this, also change
+            // Database::set_email_published to recurse like
+            // Database::merge does.
 
             // Did we certify any of other's User IDs?
             if ! other.userids()
@@ -240,6 +248,11 @@ where
                         break; // N are enough.
                     }
                 }
+            }
+
+            // Recursively reconsider cert.
+            if let Some(boundary) = boundary {
+                boundary.insert(other.fingerprint(), other);
             }
         } else {
             // Try the next expensive method.
