@@ -107,11 +107,9 @@ msgstr "News:"
 
 #: src/gettext_strings.rs:16
 msgid ""
-"<a href=\"/about/news#2019-11-12-celebrating-100k\">Celebrating 100.000 "
-"verified addresses! 📈</a> (2019-11-12)"
+"<a href=\"/about/news#2021-09-20-1pa3pc\">Support for third-party "
+"certification signatures</a> (2021-09-21)"
 msgstr ""
-"<a href=\"/about/news#2019-11-12-celebrating-100k\">Wir feiern 100.000 "
-"überprüfte Adressen! 📈</a> (2019-11-12)"
 
 #: src/gettext_strings.rs:17
 msgid "v{{ version }} built from"
@@ -481,3 +479,10 @@ msgstr "Zeitlimit beim Hochladen abgelaufen. Bitte versuch es erneut."
 #: src/web/vks.rs:284
 msgid "Invalid verification link."
 msgstr "Ungültiger Bestätigungs-Link."
+
+#~ msgid ""
+#~ "<a href=\"/about/news#2019-11-12-celebrating-100k\">Celebrating 100.000 "
+#~ "verified addresses! 📈</a> (2019-11-12)"
+#~ msgstr ""
+#~ "<a href=\"/about/news#2019-11-12-celebrating-100k\">Wir feiern 100.000 "
+#~ "überprüfte Adressen! 📈</a> (2019-11-12)"

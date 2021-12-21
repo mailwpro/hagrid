@@ -930,9 +930,33 @@ mod tests {
     }
 
     #[test]
+    fn spam_protection() -> Result<()> {
+        let (_tmp_dir, mut db, log_path) = open_db();
+        test::spam_protection(&mut db, &log_path)?;
+        db.check_consistency()?;
+        Ok(())
+    }
+
+    #[test]
+    fn mutual_certifications() -> Result<()> {
+        let (_tmp_dir, mut db, log_path) = open_db();
+        test::mutual_certifications(&mut db, &log_path)?;
+        db.check_consistency()?;
+        Ok(())
+    }
+
+    #[test]
     fn attested_key_signatures() -> Result<()> {
         let (_tmp_dir, mut db, log_path) = open_db();
         test::attested_key_signatures(&mut db, &log_path)?;
+        db.check_consistency()?;
+        Ok(())
+    }
+
+    #[test]
+    fn openpgp_ca_certifications() -> Result<()> {
+        let (_tmp_dir, mut db, log_path) = open_db();
+        test::openpgp_ca_certifications(&mut db, &log_path)?;
         db.check_consistency()?;
         Ok(())
     }

@@ -24,6 +24,25 @@ impl Email {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the address of the domain's openpgp-ca.
+    fn split(&self) -> (&str, &str) {
+        let mut iter = self.0.split('@');
+        let localpart = iter.next().expect("Invalid email address");
+        let domain = iter.next().expect("Invalid email address");
+        assert!(iter.next().is_none(), "Invalid email address");
+        (&localpart, &domain)
+    }
+
+    /// Tests whether this email is a openpgp-ca address.
+    pub fn is_openpgp_ca(&self) -> bool {
+        self.split().0 == "openpgp-ca"
+    }
+
+    /// Returns the address of the domain's openpgp-ca address.
+    pub fn corresponding_openpgp_ca(&self) -> Self {
+        Self(format!("openpgp-ca@{}", self.split().1))
+    }
 }
 
 impl TryFrom<&UserID> for Email {
