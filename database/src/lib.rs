@@ -17,6 +17,7 @@ extern crate log;
 extern crate chrono;
 extern crate hex;
 extern crate pathdiff;
+extern crate r2d2_sqlite;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
@@ -36,7 +37,8 @@ pub mod sync;
 pub mod wkd;
 
 mod fs;
-pub use self::fs::Filesystem as KeyDatabase;
+mod sqlite;
+pub use self::sqlite::Sqlite as KeyDatabase;
 
 mod stateful_tokens;
 pub use stateful_tokens::StatefulTokens;

@@ -50,7 +50,7 @@ fn main() {
 
 fn real_main() -> Result<()> {
     let opt = Opt::from_args();
-    let db = KeyDatabase::new_from_base(opt.base.canonicalize()?)?;
+    let db = KeyDatabase::new_file(opt.base.canonicalize()?)?;
     delete(&db, &opt.query.parse()?, opt.all_bindings, opt.all)
 }
 
