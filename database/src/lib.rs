@@ -25,6 +25,7 @@ extern crate hex;
 extern crate walkdir;
 extern crate chrono;
 extern crate zbase32;
+extern crate r2d2_sqlite;
 
 extern crate sequoia_openpgp as openpgp;
 use openpgp::{
@@ -41,7 +42,8 @@ pub mod wkd;
 pub mod sync;
 
 mod fs;
-pub use self::fs::Filesystem as KeyDatabase;
+mod sqlite;
+pub use self::sqlite::Sqlite as KeyDatabase;
 
 mod stateful_tokens;
 pub use stateful_tokens::StatefulTokens;

@@ -17,6 +17,7 @@ pkgs.mkShell {
   ];
 
   buildInputs = with pkgs; [
+    sqlite
     openssl
 
     clang

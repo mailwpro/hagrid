@@ -444,11 +444,9 @@ fn configure_prometheus(config: &Config) -> Option<PrometheusMetrics> {
 
 fn configure_db_service(config: &Config) -> Result<KeyDatabase> {
     let keys_internal_dir: PathBuf = config.get_str("keys_internal_dir")?.into();
-    let keys_external_dir: PathBuf = config.get_str("keys_external_dir")?.into();
-    let tmp_dir: PathBuf = config.get_str("tmp_dir")?.into();
 
-    let fs_db = KeyDatabase::new(keys_internal_dir, keys_external_dir, tmp_dir)?;
-    Ok(fs_db)
+    let sqlite_db = KeyDatabase::new_file(keys_internal_dir)?;
+    Ok(sqlite_db)
 }
 
 fn configure_hagrid_state(config: &Config) -> Result<HagridState> {
