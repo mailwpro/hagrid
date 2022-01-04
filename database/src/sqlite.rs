@@ -1,17 +1,10 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fs::{
-    create_dir_all, read_link, remove_file, rename, set_permissions, File,
-    OpenOptions, Permissions,
-};
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::str::FromStr;
 
-use pathdiff::diff_paths;
 use std::time::SystemTime;
-use tempfile;
-use url::form_urlencoded;
 
 use sync::FlockMutexGuard;
 use types::{Email, Fingerprint, KeyID};
@@ -20,10 +13,12 @@ use {Database, Query};
 
 use wkd;
 
+use openpgp::parse::Parse;
 use openpgp::Cert;
 use openpgp_utils::POLICY;
 
 use r2d2_sqlite::rusqlite::params;
+use r2d2_sqlite::rusqlite::OptionalExtension;
 use r2d2_sqlite::SqliteConnectionManager;
 
 pub struct Sqlite {
@@ -34,7 +29,7 @@ pub struct Sqlite {
 }
 
 impl Sqlite {
-    pub fn new_file(base_dir: impl Into<PathBuf>) -> Result<Self> {
+    pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self> {
         let base_dir: PathBuf = base_dir.into();
 
         let db_file = base_dir.join("keys.sqlite");
@@ -43,19 +38,10 @@ impl Sqlite {
         Self::new_internal(base_dir, manager)
     }
 
-    pub fn new_memory(base_dir: impl Into<PathBuf>) -> Result<Self> {
-        let base_dir: PathBuf = base_dir.into();
-
-        let manager = SqliteConnectionManager::memory();
-
-        Self::new_internal(base_dir, manager)
-    }
-
     #[cfg(test)]
     fn build_pool(
         manager: SqliteConnectionManager,
     ) -> Result<r2d2::Pool<SqliteConnectionManager>> {
-
         #[derive(Copy, Clone, Debug)]
         pub struct LogConnectionCustomizer;
         impl<E> r2d2::CustomizeConnection<rusqlite::Connection, E>
@@ -95,15 +81,34 @@ impl Sqlite {
         manager: SqliteConnectionManager,
     ) -> Result<Self> {
         let keys_dir_log = base_dir.join("log");
+        create_dir_all(&keys_dir_log)?;
+
         let dry_run = false;
 
         let pool = Self::build_pool(manager)?;
         let conn = pool.get()?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS certs (
-                fingerprint     TEXT NOT NULL PRIMARY KEY,
-                full            BLOB NOT NULL,
-                published       BLOB
+                fingerprint            TEXT NOT NULL PRIMARY KEY,
+                full                   TEXT NOT NULL,
+                published              TEXT, --make this NOT NULL later
+                published_not_armored  BLOB
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cert_identifiers (
+                fingerprint            TEXT NOT NULL UNIQUE,
+                keyid                  TEXT NOT NULL UNIQUE AS (substr(fingerprint, -16)),
+
+                primary_fingerprint    TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS emails (
+                email                  TEXT NOT NULL UNIQUE,
+                primary_fingerprint    TEXT NOT NULL
             )",
             [],
         )?;
@@ -111,84 +116,64 @@ impl Sqlite {
         Ok(Self { pool, keys_dir_log, dry_run })
     }
 
-    fn read_from_path(
+    fn primary_fpr_by_any_fpr(
         &self,
-        path: &Path,
-        allow_internal: bool,
-    ) -> Option<String> {
-        todo!()
+        fpr: &Fingerprint,
+    ) -> Result<Option<Fingerprint>> {
+        let conn = self.pool.get().unwrap();
+        let primary_fingerprint: Option<String> = conn
+            .query_row(
+                "
+                SELECT primary_fingerprint
+                FROM cert_identifiers
+                WHERE fingerprint = ?1
+                ",
+                [fpr.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let primary_fingerprint =
+            primary_fingerprint.map(|fp| Fingerprint::from_str(&fp).unwrap());
+        Ok(primary_fingerprint)
     }
 
-    fn read_from_path_bytes(
+    fn primary_fpr_by_any_kid(
         &self,
-        path: &Path,
-        allow_internal: bool,
-    ) -> Option<Vec<u8>> {
-        todo!()
-    }
-
-    /// Returns the Fingerprint the given path is pointing to.
-    pub fn path_to_fingerprint(path: &Path) -> Option<Fingerprint> {
-        todo!()
-    }
-
-    /// Returns the KeyID the given path is pointing to.
-    fn path_to_keyid(path: &Path) -> Option<KeyID> {
-        todo!()
-    }
-
-    /// Returns the Email the given path is pointing to.
-    fn path_to_email(path: &Path) -> Option<Email> {
-        todo!()
-    }
-
-    /// Returns the backing primary key fingerprint for any key path.
-    pub fn path_to_primary(path: &Path) -> Option<Fingerprint> {
-        todo!()
-    }
-
-    fn link_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        todo!()
-    }
-
-    fn link_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        todo!()
-    }
-
-    fn unlink_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        todo!()
-    }
-
-    fn unlink_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        todo!()
+        kid: &KeyID,
+    ) -> Result<Option<Fingerprint>> {
+        let conn = self.pool.get().unwrap();
+        let primary_fingerprint: Option<String> = conn
+            .query_row(
+                "
+                SELECT primary_fingerprint
+                FROM cert_identifiers
+                WHERE keyid = ?1
+                ",
+                [kid.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let primary_fingerprint =
+            primary_fingerprint.map(|fp| Fingerprint::from_str(&fp).unwrap());
+        Ok(primary_fingerprint)
     }
 
     fn open_logfile(&self, file_name: &str) -> Result<File> {
         let file_path = self.keys_dir_log.join(file_name);
         Ok(OpenOptions::new().create(true).append(true).open(file_path)?)
     }
-
-    fn perform_checks(
-        &self,
-        checks_dir: &Path,
-        tpks: &mut HashMap<Fingerprint, Cert>,
-        check: impl Fn(&Path, &Cert, &Fingerprint) -> Result<()>,
-    ) -> Result<()> {
-        // XXX: stub
-        Ok(())
-    }
 }
 
 impl Database for Sqlite {
-    type MutexGuard = FlockMutexGuard;
-    type TempCert = String;
+    type MutexGuard = String;
+    type TempCert = Vec<u8>;
 
     fn lock(&self) -> Result<Self::MutexGuard> {
-        todo!()
+        Ok("locked :)".to_owned())
     }
 
     fn write_to_temp(&self, content: &[u8]) -> Result<Self::TempCert> {
-        todo!()
+        Ok(content.to_vec())
     }
 
     fn write_log_append(
@@ -213,6 +198,16 @@ impl Database for Sqlite {
         file: Self::TempCert,
         fpr: &Fingerprint,
     ) -> Result<()> {
+        let conn = self.pool.get()?;
+        let file = String::from_utf8(file)?;
+        conn.execute(
+            "
+            INSERT INTO certs (fingerprint, full)
+            VALUES (?1, ?2)
+            ON CONFLICT(fingerprint) DO UPDATE SET full=excluded.full;
+            ",
+            params![fpr.to_string(), file],
+        )?;
         Ok(())
     }
 
@@ -221,6 +216,16 @@ impl Database for Sqlite {
         file: Self::TempCert,
         fpr: &Fingerprint,
     ) -> Result<()> {
+        let conn = self.pool.get()?;
+        let file = String::from_utf8(file)?;
+        conn.execute(
+            "
+            UPDATE certs
+            SET published = ?2
+            WHERE fingerprint = ?1
+            ",
+            params![fpr.to_string(), file],
+        )?;
         Ok(())
     }
 
@@ -229,9 +234,19 @@ impl Database for Sqlite {
         file: Option<Self::TempCert>,
         fpr: &Fingerprint,
     ) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "
+            UPDATE certs
+            SET published_not_armored = ?2
+            WHERE fingerprint = ?1
+            ",
+            params![fpr.to_string(), file],
+        )?;
         Ok(())
     }
 
+    // TODO!
     fn write_to_quarantine(
         &self,
         fpr: &Fingerprint,
@@ -245,65 +260,272 @@ impl Database for Sqlite {
         fpr: &Fingerprint,
         fpr_target: &Fingerprint,
     ) -> Result<Option<Fingerprint>> {
-        Ok(None)
+        let fpr_check = match self.primary_fpr_by_any_fpr(fpr)? {
+            None => Some(fpr.clone()),
+            Some(actual_primary) => {
+                if &actual_primary == fpr_target {
+                    None
+                } else {
+                    info!(
+                        "Fingerprint points to different key for {}
+                          (already links to {:?} but {:?} requested)",
+                        fpr, actual_primary, fpr_target
+                    );
+                    return Err(anyhow!(format!(
+                        "Fingerprint collision for key {}",
+                        fpr
+                    )));
+                }
+            }
+        };
+        let kid_check = match self.primary_fpr_by_any_kid(&KeyID::from(fpr))? {
+            None => Some(fpr.clone()),
+            Some(actual_primary) => {
+                if &actual_primary == fpr_target {
+                    None
+                } else {
+                    info!(
+                        "KeyID points to different key for {}
+                          (already links to {:?} but {:?} requested)",
+                        fpr, actual_primary, fpr_target
+                    );
+                    return Err(anyhow!(format!(
+                        "KeyID collision for key {}",
+                        fpr
+                    )));
+                }
+            }
+        };
+        Ok(fpr_check.and(kid_check))
     }
 
     fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
-        None
+        use super::Query::*;
+
+        let conn = self.pool.get().unwrap();
+        let fp: Option<Option<String>> = match term {
+            ByFingerprint(ref fp) => {
+                conn.query_row(
+                    "
+                    SELECT primary_fingerprint
+                    FROM cert_identifiers
+                    WHERE fingerprint = ?1
+                    ",
+                    [&fp.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .unwrap()
+            }
+            ByKeyID(ref keyid) => {
+                conn.query_row(
+                    "
+                    SELECT primary_fingerprint
+                    FROM cert_identifiers
+                    WHERE keyid = ?1
+                    ",
+                    [&keyid.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .unwrap()
+            }
+            ByEmail(ref email) => {
+                conn.query_row(
+                    "
+                    SELECT primary_fingerprint
+                    FROM emails
+                    WHERE email = ?1
+                    ",
+                    [email.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .unwrap()
+            }
+            _ => None,
+        };
+        fp.flatten().and_then(|fp| Fingerprint::from_str(&fp).ok())
     }
 
     fn link_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "
+            INSERT INTO emails (email, primary_fingerprint)
+            VALUES (?1, ?2)
+            ON CONFLICT(email) DO UPDATE
+                SET email=excluded.email, primary_fingerprint=excluded.primary_fingerprint
+            ",
+            params![
+                email.to_string(),
+                fpr.to_string(),
+            ],
+        )?;
         Ok(())
     }
 
     fn unlink_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "
+            DELETE FROM emails
+            WHERE email = ?1
+               AND primary_fingerprint = ?2
+            ",
+            params![email.to_string(), fpr.to_string(),],
+        )?;
         Ok(())
     }
 
+    // XXX: Rename to link_fpr_kid
     fn link_fpr(
         &self,
         from: &Fingerprint,
         primary_fpr: &Fingerprint,
     ) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "
+            INSERT INTO cert_identifiers (primary_fingerprint, fingerprint)
+            VALUES (?1, ?2)
+            ON CONFLICT(fingerprint) DO UPDATE
+                SET fingerprint=excluded.fingerprint,
+                    primary_fingerprint=excluded.primary_fingerprint;
+            ",
+            params![primary_fpr.to_string(), from.to_string(),],
+        )?;
         Ok(())
     }
 
+    // XXX: Rename to unlink_fpr_kid
     fn unlink_fpr(
         &self,
         from: &Fingerprint,
         primary_fpr: &Fingerprint,
     ) -> Result<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "
+            DELETE FROM cert_identifiers
+            WHERE primary_fingerprint = ?1
+                AND fingerprint = ?2
+            ",
+            params![primary_fpr.to_string(), from.to_string(),],
+        )?;
         Ok(())
     }
 
-    // XXX: slow
+    // Lookup straight from certs table, no link resolution
     fn by_fpr_full(&self, fpr: &Fingerprint) -> Option<String> {
-        None
+        let conn = self.pool.get().unwrap();
+        let armored_cert: Option<String> = conn
+            .query_row(
+                "
+                SELECT full
+                FROM certs
+                WHERE fingerprint = ?1
+                ",
+                [fpr.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        armored_cert
     }
 
-    // XXX: slow
+    // XXX: rename! to by_primary_fpr_published
+    // Lookup the published cert straight from certs table, no link resolution
     fn by_primary_fpr(&self, fpr: &Fingerprint) -> Option<String> {
-        None
+        let conn = self.pool.get().unwrap();
+        let armored_cert: Option<String> = conn
+            .query_row(
+                "
+                SELECT published
+                FROM certs
+                WHERE fingerprint = ?1
+                ",
+                [fpr.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        armored_cert
     }
 
-    // XXX: slow
+    // XXX: Rename: armored_cert_by_any_fpr
     fn by_fpr(&self, fpr: &Fingerprint) -> Option<String> {
-        None
+        let primary_fingerprint = self.primary_fpr_by_any_fpr(fpr).unwrap();
+        primary_fingerprint.and_then(|fp| self.by_primary_fpr(&fp))
     }
 
     // XXX: slow
+    // XXX: Rename: armored_cert_by_email
     fn by_email(&self, email: &Email) -> Option<String> {
-        None
+        let conn = self.pool.get().unwrap();
+        let primary_fingerprint: Option<String> = conn
+            .query_row(
+                "
+                SELECT primary_fingerprint
+                FROM emails
+                WHERE email = ?1
+                ",
+                [email.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        if let Some(primary_fingerprint) = primary_fingerprint {
+            self.by_primary_fpr(
+                &Fingerprint::from_str(&primary_fingerprint).unwrap(),
+            )
+        } else {
+            None
+        }
     }
 
-    // XXX: slow
+    // XXX: return results
+    // TODO: Test!
+    // XXX: Rename: binary_cert_by_email
     fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>> {
-        None
+        let conn = self.pool.get().unwrap();
+        let primary_fingerprint: Option<String> = conn
+            .query_row(
+                "
+                SELECT primary_fingerprint
+                FROM emails
+                WHERE email = ?1
+                ",
+                [email.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        match primary_fingerprint {
+            Some(primary_fingerprint) => {
+                let binary_cert: Option<Vec<u8>> = conn
+                    .query_row(
+                        "
+                        SELECT published_not_armored
+                        FROM certs
+                        WHERE fingerprint = ?1
+                        ",
+                        [primary_fingerprint],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .unwrap();
+                binary_cert
+            }
+            None => None,
+        }
     }
 
-    // XXX: slow
+    // XXX: Rename: armored_cert_by_any_kid
     fn by_kid(&self, kid: &KeyID) -> Option<String> {
-        None
+        // XXX: error handling
+        let primary_fingerprint = self.primary_fpr_by_any_kid(kid).unwrap();
+        primary_fingerprint.and_then(|fp| self.by_primary_fpr(&fp))
     }
 
     /// Checks the database for consistency.
@@ -311,6 +533,147 @@ impl Database for Sqlite {
     /// Note that this operation may take a long time, and is
     /// generally only useful for testing.
     fn check_consistency(&self) -> Result<()> {
+        // Check for each published cert:
+        // - all userids (emails) from the published cert point to the cert
+        // - no other userids point to the cert
+        // - all fingerprints of published signing subkeys point to the cert
+        //   (cert_identifiers)
+        // - no other subkey fingerprints point to the cert
+        // - all keyids of signing subkeys and of the primary key point to the cert
+        //   (cert_identifiers)
+        // - no other subkey fingerprints point to the cert
+        // - Published armored and published binary must match
+        let conn = self.pool.get().unwrap();
+        let mut cert_stmt = conn.prepare(
+            "
+            SELECT fingerprint, published, published_not_armored
+            FROM certs
+            ",
+        )?;
+        for row in cert_stmt.query_map([], |row| {
+            // TODO: create a struct which implements FromSql for this
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<Vec<u8>>>(2)?,
+            ))
+        })? {
+            let (primary_fp, published, published_not_armored) = row?;
+            let tpk = Cert::from_str(&published)?;
+
+            // - all userids (emails) from the published cert point to the cert
+            // - no other userids point to the cert
+            let mut published_userids = tpk
+                .userids()
+                .map(|binding| binding.userid().clone())
+                .map(|userid| Email::try_from(&userid).unwrap())
+                .collect::<Vec<Email>>();
+            published_userids.sort_unstable();
+            published_userids.dedup();
+            let mut stmt = conn.prepare(
+                "
+                SELECT email
+                FROM emails
+                WHERE primary_fingerprint = ?1
+                ",
+            )?;
+            let mut linking_userids = stmt
+                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
+                .flat_map(|res| res.map(|email| Email::from_str(&email)))
+                .collect::<Result<Vec<Email>>>()?;
+            linking_userids.sort_unstable();
+            if linking_userids != published_userids {
+                return Err(anyhow!(
+                    "For fingerprint {}, published {:?} but linked {:?}",
+                    primary_fp,
+                    published_userids,
+                    linking_userids
+                ));
+            }
+
+            // - all fingerprints of published signing subkeys point to the cert
+            //   (cert_identifiers)
+            // - no other subkey fingerprints point to the cert
+            let policy = &POLICY;
+            let mut published_fps = tpk
+                .keys()
+                .with_policy(policy, None)
+                .for_certification()
+                .for_signing()
+                .map(|amalgamation| amalgamation.key().fingerprint())
+                .flat_map(Fingerprint::try_from)
+                .collect::<Vec<_>>();
+            published_fps.sort_unstable();
+            published_fps.dedup();
+            let mut stmt = conn.prepare(
+                "
+                SELECT fingerprint
+                FROM cert_identifiers
+                WHERE primary_fingerprint = ?1
+                ",
+            )?;
+            let mut linking_fps = stmt
+                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
+                .flat_map(|res| res.map(|fp| Fingerprint::from_str(&fp)))
+                .collect::<Result<Vec<Fingerprint>>>()?;
+            linking_fps.sort_unstable();
+            if linking_fps != published_fps {
+                return Err(anyhow!(
+                    "For fingerprint {}, published subkeys Fingerprints {:?}
+                        but linked {:?}",
+                    primary_fp,
+                    published_fps,
+                    linking_fps
+                ));
+            }
+
+            // - all keyids of signing subkeys and of the primary key point to the cert
+            //   (cert_identifiers)
+            // - no other subkey fingerprints point to the cert
+            let policy = &POLICY;
+            let mut published_kids = tpk
+                .keys()
+                .with_policy(policy, None)
+                .for_certification()
+                .for_signing()
+                .map(|amalgamation| amalgamation.key().fingerprint())
+                .flat_map(KeyID::try_from)
+                .collect::<Vec<_>>();
+            published_kids.sort_unstable();
+            published_kids.dedup();
+            let mut stmt = conn.prepare(
+                "
+                SELECT keyid
+                FROM cert_identifiers
+                WHERE primary_fingerprint = ?1
+                ",
+            )?;
+            let mut linking_kids = stmt
+                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
+                .flat_map(|res| res.map(|fp| KeyID::from_str(&fp)))
+                .collect::<Result<Vec<KeyID>>>()?;
+            linking_kids.sort_unstable();
+            if linking_kids != published_kids {
+                return Err(anyhow!(
+                    "For fingerprint {}, published subkey KeyIDs {:?}
+                        but linked {:?}",
+                    primary_fp,
+                    published_kids,
+                    linking_kids
+                ));
+            }
+
+            // - Published armored and published binary must match
+            if let Some(pna) = published_not_armored {
+                if Cert::from_bytes(&pna)? != tpk {
+                    return Err(anyhow!(
+                        "For fingerprint {}, published and
+                                published_not_armored do not match",
+                        primary_fp,
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -329,7 +692,7 @@ mod tests {
     fn open_db() -> (TempDir, Sqlite, PathBuf) {
         let tmpdir = TempDir::new().unwrap();
 
-        let db = Sqlite::new_memory(tmpdir.path()).unwrap();
+        let db = Sqlite::new(tmpdir.path()).unwrap();
         let log_path = db.keys_dir_log.join(db.get_current_log_filename());
 
         (tmpdir, db, log_path)
@@ -527,7 +890,7 @@ mod tests {
     #[test]
     fn reverse_fingerprint_to_path() {
         let tmpdir = TempDir::new().unwrap();
-        let db = Sqlite::new_memory(tmpdir.path()).unwrap();
+        let db = Sqlite::new(tmpdir.path()).unwrap();
 
         let fp: Fingerprint =
             "CBCD8F030588653EEDD7E2659B7DD433F254904A".parse().unwrap();

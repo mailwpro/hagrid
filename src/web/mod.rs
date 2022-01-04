@@ -445,7 +445,7 @@ fn configure_prometheus(config: &Config) -> Option<PrometheusMetrics> {
 fn configure_db_service(config: &Config) -> Result<KeyDatabase> {
     let keys_internal_dir: PathBuf = config.get_str("keys_internal_dir")?.into();
 
-    let sqlite_db = KeyDatabase::new_file(keys_internal_dir)?;
+    let sqlite_db = KeyDatabase::new(keys_internal_dir)?;
     Ok(sqlite_db)
 }
 

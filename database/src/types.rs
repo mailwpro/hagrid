@@ -77,7 +77,7 @@ impl FromStr for Email {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 20]);
 
 impl TryFrom<sequoia_openpgp::Fingerprint> for Fingerprint {
@@ -135,7 +135,7 @@ impl FromStr for Fingerprint {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KeyID([u8; 8]);
 
 impl TryFrom<sequoia_openpgp::Fingerprint> for KeyID {
