@@ -5,6 +5,10 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use openpgp::packet::UserID;
+use r2d2_sqlite::rusqlite::types::FromSql;
+use r2d2_sqlite::rusqlite::types::FromSqlError;
+use r2d2_sqlite::rusqlite::types::FromSqlResult;
+use r2d2_sqlite::rusqlite::types::ValueRef;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use Result;
 
@@ -77,8 +81,16 @@ impl FromStr for Email {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 20]);
+
+impl FromSql for Fingerprint {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|s| Self::from_str(s).map_err(|_| FromSqlError::InvalidType))
+    }
+}
 
 impl TryFrom<sequoia_openpgp::Fingerprint> for Fingerprint {
     type Error = Error;

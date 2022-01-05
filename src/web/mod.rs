@@ -319,7 +319,7 @@ pub fn key_to_response_plain(
         return MyResponse::not_found_plain(describe_query_error(&i18n, &query));
     };
 
-    match db.by_fpr(&fp) {
+    match db.by_primary_fpr(&fp) {
         Some(armored) => MyResponse::key(armored, &fp),
         None => MyResponse::not_found_plain(describe_query_error(&i18n, &query)),
     }

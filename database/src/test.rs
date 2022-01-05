@@ -314,17 +314,17 @@ pub fn test_regenerate(db: &mut impl Database) {
     db.unlink_email(&email1, &fpr).unwrap();
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
-    assert!(db.check_consistency().is_ok());
+    db.check_consistency().expect("consistency must return Ok");
 
     db.unlink_fpr(&fpr, &fpr).unwrap();
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
-    assert!(db.check_consistency().is_ok());
+    db.check_consistency().expect("consistency must return Ok");
 
     db.unlink_fpr(&fpr_sign, &fpr).unwrap();
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
-    assert!(db.check_consistency().is_ok());
+    db.check_consistency().expect("consistency must return Ok");
 }
 
 pub fn test_reupload(db: &mut impl Database) {
