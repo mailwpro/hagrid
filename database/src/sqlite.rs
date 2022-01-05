@@ -322,6 +322,10 @@ mod tests {
     use tempfile::TempDir;
     use test;
 
+    const DATA_1: &str = "data, content doesn't matter";
+    const DATA_2: &str = "other data, content doesn't matter";
+    const FINGERPRINT_1: &str = "D4AB192964F76A7F8F8A9B357BD18320DEADFA11";
+
     fn open_db() -> (TempDir, Sqlite, PathBuf) {
         let tmpdir = TempDir::new().unwrap();
 
@@ -369,6 +373,43 @@ mod tests {
         assert!(
             !db.merge(k3).unwrap().into_tpk_status().email_status.len() > 0
         );
+    }
+
+    #[test]
+    fn xx_by_fpr_full() -> Result<()> {
+        let (_tmp_dir, db, _log_path) = open_db();
+        let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
+
+        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        db.link_fpr(&fpr1, &fpr1)?;
+
+        assert_eq!(db.by_fpr_full(&fpr1).expect("must find key"), DATA_1);
+        Ok(())
+    }
+
+    #[test]
+    fn xx_by_kid() -> Result<()> {
+        let (_tmp_dir, db, _log_path) = open_db();
+        let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
+
+        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        db.move_tmp_to_published(db.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
+        db.link_fpr(&fpr1, &fpr1)?;
+
+        assert_eq!(db.by_kid(&fpr1.into()).expect("must find key"), DATA_2);
+        Ok(())
+    }
+
+    #[test]
+    fn xx_by_primary_fpr() -> Result<()> {
+        let (_tmp_dir, db, _log_path) = open_db();
+        let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
+
+        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        db.move_tmp_to_published(db.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
+
+        assert_eq!(db.by_primary_fpr(&fpr1).expect("must find key"), DATA_2);
+        Ok(())
     }
 
     #[test]
