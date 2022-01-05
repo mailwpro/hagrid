@@ -51,6 +51,45 @@ impl Sqlite {
         Self::new_internal(base_dir, manager)
     }
 
+    #[cfg(test)]
+    fn build_pool(
+        manager: SqliteConnectionManager,
+    ) -> Result<r2d2::Pool<SqliteConnectionManager>> {
+
+        #[derive(Copy, Clone, Debug)]
+        pub struct LogConnectionCustomizer;
+        impl<E> r2d2::CustomizeConnection<rusqlite::Connection, E>
+            for LogConnectionCustomizer
+        {
+            fn on_acquire(
+                &self,
+                conn: &mut rusqlite::Connection,
+            ) -> std::result::Result<(), E> {
+                println!("Acquiring sqlite pool connection: {:?}", conn);
+                conn.trace(Some(|query| {
+                    println!("{}", query);
+                }));
+                std::result::Result::Ok(())
+            }
+
+            fn on_release(&self, conn: rusqlite::Connection) {
+                println!("Releasing pool connection: {:?}", conn);
+            }
+        }
+
+        Ok(r2d2::Pool::builder()
+            .max_size(2)
+            .connection_customizer(Box::new(LogConnectionCustomizer {}))
+            .build(manager)?)
+    }
+
+    #[cfg(not(test))]
+    fn build_pool(
+        manager: SqliteConnectionManager,
+    ) -> Result<r2d2::Pool<SqliteConnectionManager>> {
+        Ok(r2d2::Pool::builder().max_size(2).build(manager)?)
+    }
+
     fn new_internal(
         base_dir: PathBuf,
         manager: SqliteConnectionManager,
@@ -58,8 +97,9 @@ impl Sqlite {
         let keys_dir_log = base_dir.join("log");
         let dry_run = false;
 
-        let pool = r2d2::Pool::new(manager)?;
-        pool.get()?.execute(
+        let pool = Self::build_pool(manager)?;
+        let conn = pool.get()?;
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS certs (
                 fingerprint     TEXT NOT NULL PRIMARY KEY,
                 full            BLOB NOT NULL,

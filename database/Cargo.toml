@@ -25,7 +25,7 @@ chrono = "0.4"
 zbase32 = "0.1.2"
 r2d2 = "0.8"
 r2d2_sqlite = "0.19"
-rusqlite = "0.26"
+rusqlite = { version = "0.26", features = ["trace"] }
 
 [lib]
 name = "hagrid_database"
