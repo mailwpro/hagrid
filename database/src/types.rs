@@ -77,6 +77,21 @@ impl FromStr for Email {
     }
 }
 
+use r2d2_sqlite::rusqlite::types::{
+    FromSql, FromSqlError, FromSqlResult, ValueRef,
+};
+
+impl FromSql for Email {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|v| {
+                Email::from_str(v)
+                    .map_err(|err| FromSqlError::Other(err.into()))
+            })
+    }
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 20]);
 
@@ -135,6 +150,17 @@ impl FromStr for Fingerprint {
     }
 }
 
+impl FromSql for Fingerprint {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|v| {
+                Fingerprint::from_str(v)
+                    .map_err(|err| FromSqlError::Other(err.into()))
+            })
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KeyID([u8; 8]);
 
@@ -183,10 +209,22 @@ impl FromStr for KeyID {
     fn from_str(s: &str) -> Result<KeyID> {
         match sequoia_openpgp::KeyID::from_hex(s)? {
             sequoia_openpgp::KeyID::V4(a) => Ok(KeyID(a)),
-            sequoia_openpgp::KeyID::Invalid(_) =>
-                Err(anyhow!("'{}' is not a valid long key ID", s)),
+            sequoia_openpgp::KeyID::Invalid(_) => {
+                Err(anyhow!("'{}' is not a valid long key ID", s))
+            }
             _ => Err(anyhow!("unknown keyid type")),
         }
+    }
+}
+
+impl FromSql for KeyID {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|v| {
+                KeyID::from_str(v)
+                    .map_err(|err| FromSqlError::Other(err.into()))
+            })
     }
 }
 

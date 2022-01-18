@@ -19,6 +19,7 @@ use openpgp_utils::POLICY;
 
 use r2d2_sqlite::rusqlite::params;
 use r2d2_sqlite::rusqlite::OptionalExtension;
+use r2d2_sqlite::rusqlite::Result as RusqliteResult;
 use r2d2_sqlite::SqliteConnectionManager;
 
 pub struct Sqlite {
@@ -121,7 +122,7 @@ impl Sqlite {
         fpr: &Fingerprint,
     ) -> Result<Option<Fingerprint>> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
+        let primary_fingerprint: Option<Fingerprint> = conn
             .query_row(
                 "
                 SELECT primary_fingerprint
@@ -132,8 +133,6 @@ impl Sqlite {
                 |row| row.get(0),
             )
             .optional()?;
-        let primary_fingerprint =
-            primary_fingerprint.map(|fp| Fingerprint::from_str(&fp).unwrap());
         Ok(primary_fingerprint)
     }
 
@@ -142,7 +141,7 @@ impl Sqlite {
         kid: &KeyID,
     ) -> Result<Option<Fingerprint>> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
+        let primary_fingerprint: Option<Fingerprint> = conn
             .query_row(
                 "
                 SELECT primary_fingerprint
@@ -153,8 +152,6 @@ impl Sqlite {
                 |row| row.get(0),
             )
             .optional()?;
-        let primary_fingerprint =
-            primary_fingerprint.map(|fp| Fingerprint::from_str(&fp).unwrap());
         Ok(primary_fingerprint)
     }
 
@@ -303,7 +300,7 @@ impl Database for Sqlite {
         use super::Query::*;
 
         let conn = self.pool.get().unwrap();
-        let fp: Option<Option<String>> = match term {
+        let fp: Option<Option<Fingerprint>> = match term {
             ByFingerprint(ref fp) => {
                 conn.query_row(
                     "
@@ -345,7 +342,7 @@ impl Database for Sqlite {
             }
             _ => None,
         };
-        fp.flatten().and_then(|fp| Fingerprint::from_str(&fp).ok())
+        fp.flatten()
     }
 
     fn link_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
@@ -489,7 +486,7 @@ impl Database for Sqlite {
     // XXX: Rename: binary_cert_by_email
     fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
+        let primary_fingerprint: Option<Fingerprint> = conn
             .query_row(
                 "
                 SELECT primary_fingerprint
@@ -510,7 +507,7 @@ impl Database for Sqlite {
                         FROM certs
                         WHERE fingerprint = ?1
                         ",
-                        [primary_fingerprint],
+                        [primary_fingerprint.to_string()],
                         |row| row.get(0),
                     )
                     .optional()
@@ -553,7 +550,7 @@ impl Database for Sqlite {
         for row in cert_stmt.query_map([], |row| {
             // TODO: create a struct which implements FromSql for this
             Ok((
-                row.get::<_, String>(0)?,
+                row.get::<_, Fingerprint>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, Option<Vec<u8>>>(2)?,
             ))
@@ -578,9 +575,10 @@ impl Database for Sqlite {
                 ",
             )?;
             let mut linking_userids = stmt
-                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
-                .flat_map(|res| res.map(|email| Email::from_str(&email)))
-                .collect::<Result<Vec<Email>>>()?;
+                .query_map([&primary_fp.to_string()], |row| {
+                    row.get::<_, Email>(0)
+                })?
+                .collect::<RusqliteResult<Vec<Email>>>()?;
             linking_userids.sort_unstable();
             if linking_userids != published_userids {
                 return Err(anyhow!(
@@ -613,9 +611,10 @@ impl Database for Sqlite {
                 ",
             )?;
             let mut linking_fps = stmt
-                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
-                .flat_map(|res| res.map(|fp| Fingerprint::from_str(&fp)))
-                .collect::<Result<Vec<Fingerprint>>>()?;
+                .query_map([&primary_fp.to_string()], |row| {
+                    row.get::<_, Fingerprint>(0)
+                })?
+                .collect::<RusqliteResult<Vec<Fingerprint>>>()?;
             linking_fps.sort_unstable();
             if linking_fps != published_fps {
                 return Err(anyhow!(
@@ -649,9 +648,10 @@ impl Database for Sqlite {
                 ",
             )?;
             let mut linking_kids = stmt
-                .query_map([&primary_fp], |row| row.get::<_, String>(0))?
-                .flat_map(|res| res.map(|fp| KeyID::from_str(&fp)))
-                .collect::<Result<Vec<KeyID>>>()?;
+                .query_map([&primary_fp.to_string()], |row| {
+                    row.get::<_, KeyID>(0)
+                })?
+                .collect::<RusqliteResult<Vec<KeyID>>>()?;
             linking_kids.sort_unstable();
             if linking_kids != published_kids {
                 return Err(anyhow!(
