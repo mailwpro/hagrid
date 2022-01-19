@@ -43,12 +43,13 @@ impl Sqlite {
 
         let pool = Self::build_pool(manager)?;
         let conn = pool.get()?;
+        //TODO: make published_armored NOT NULL
         conn.execute(
             "CREATE TABLE IF NOT EXISTS certs (
                 fingerprint            TEXT NOT NULL PRIMARY KEY,
                 full                   TEXT NOT NULL,
-                published              TEXT, --make this NOT NULL later
-                published_not_armored  BLOB
+                published_binary       BLOB,
+                published_armored      TEXT -- equals armor(published_binary)
             )",
             [],
         )?;
@@ -211,7 +212,7 @@ impl Database for Sqlite {
         conn.execute(
             "
             UPDATE certs
-            SET published = ?2
+            SET published_armored = ?2
             WHERE fingerprint = ?1
             ",
             params![fpr.to_string(), file],
@@ -228,7 +229,7 @@ impl Database for Sqlite {
         conn.execute(
             "
             UPDATE certs
-            SET published_not_armored = ?2
+            SET published_binary = ?2
             WHERE fingerprint = ?1
             ",
             params![fpr.to_string(), file],
@@ -431,7 +432,7 @@ impl Database for Sqlite {
         let armored_cert: Option<String> = conn
             .query_row(
                 "
-                SELECT published
+                SELECT published_armored
                 FROM certs
                 WHERE fingerprint = ?1
                 ",
@@ -496,7 +497,7 @@ impl Database for Sqlite {
                 let binary_cert: Option<Vec<u8>> = conn
                     .query_row(
                         "
-                        SELECT published_not_armored
+                        SELECT published_binary
                         FROM certs
                         WHERE fingerprint = ?1
                         ",
@@ -536,7 +537,7 @@ impl Database for Sqlite {
         let conn = self.pool.get().unwrap();
         let mut cert_stmt = conn.prepare(
             "
-            SELECT fingerprint, published, published_not_armored
+            SELECT fingerprint, published_armored, published_binary
             FROM certs
             ",
         )?;
@@ -548,8 +549,8 @@ impl Database for Sqlite {
                 row.get::<_, Option<Vec<u8>>>(2)?,
             ))
         })? {
-            let (primary_fp, published, published_not_armored) = row?;
-            let tpk = Cert::from_str(&published)?;
+            let (primary_fp, published_armored, published_binary) = row?;
+            let tpk = Cert::from_str(&published_armored)?;
 
             // - all userids (emails) from the published cert point to the cert
             // - no other userids point to the cert
@@ -657,11 +658,11 @@ impl Database for Sqlite {
             }
 
             // - Published armored and published binary must match
-            if let Some(pna) = published_not_armored {
+            if let Some(pna) = published_binary {
                 if Cert::from_bytes(&pna)? != tpk {
                     return Err(anyhow!(
-                        "For fingerprint {}, published and
-                                published_not_armored do not match",
+                        "For fingerprint {}, published_armored and
+                                published_binary do not match",
                         primary_fp,
                     ));
                 }
