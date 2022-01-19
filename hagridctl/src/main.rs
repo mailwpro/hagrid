@@ -36,8 +36,7 @@ pub struct HagridConfigs {
 #[derive(Deserialize,Clone)]
 pub struct HagridConfig {
     _template_dir: Option<PathBuf>,
-    keys_internal_dir: Option<PathBuf>,
-    keys_external_dir: Option<PathBuf>,
+    keys_base_dir: Option<PathBuf>,
     _assets_dir: Option<PathBuf>,
     _token_dir: Option<PathBuf>,
     tmp_dir: Option<PathBuf>,

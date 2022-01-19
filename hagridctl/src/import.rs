@@ -114,15 +114,12 @@ impl <'a> ImportStats<'a> {
 
 fn import_from_files(
     config: &HagridConfig,
-    dry_run: bool,
+    _dry_run: bool,
     input_files: Vec<PathBuf>,
     multi_progress: Arc<MultiProgress>,
 ) -> Result<()> {
-    let db = KeyDatabase::new_internal(
-        config.keys_internal_dir.as_ref().unwrap(),
-        config.keys_external_dir.as_ref().unwrap(),
-        config.tmp_dir.as_ref().unwrap(),
-        dry_run,
+    let db = KeyDatabase::new(
+        config.keys_base_dir.as_ref().unwrap(),
     )?;
 
     for input_file in input_files {
