@@ -46,7 +46,10 @@ impl Sqlite {
                 fingerprint            TEXT NOT NULL PRIMARY KEY,
                 full                   TEXT NOT NULL,
                 published_binary       BLOB,
-                published_armored      TEXT -- equals armor(published_binary)
+                published_armored      TEXT, -- equals armor(published_binary)
+
+                created_at             INTEGER NOT NULL,
+                updated_at             INTEGER NOT NULL
             )",
             [],
         )?;
@@ -55,7 +58,10 @@ impl Sqlite {
                 fingerprint            TEXT NOT NULL UNIQUE,
                 keyid                  TEXT NOT NULL UNIQUE AS (substr(fingerprint, -16)),
 
-                primary_fingerprint    TEXT NOT NULL
+                primary_fingerprint    TEXT NOT NULL,
+
+                created_at             INTEGER NOT NULL,
+                updated_at             INTEGER NOT NULL
             )",
             [],
         )?;
@@ -64,7 +70,10 @@ impl Sqlite {
                 email                  TEXT NOT NULL UNIQUE,
                 wkd_hash               TEXT NOT NULL UNIQUE, -- equals `email |> localpart |> tolower |> zbase32`
 
-                primary_fingerprint    TEXT NOT NULL
+                primary_fingerprint    TEXT NOT NULL,
+
+                created_at             INTEGER NOT NULL,
+                updated_at             INTEGER NOT NULL
             )",
             [],
         )?;
@@ -192,9 +201,11 @@ impl Database for Sqlite {
         let file = String::from_utf8(file)?;
         conn.execute(
             "
-            INSERT INTO certs (fingerprint, full)
-            VALUES (?1, ?2)
-            ON CONFLICT(fingerprint) DO UPDATE SET full=excluded.full;
+            INSERT INTO certs (fingerprint, full, created_at, updated_at)
+            VALUES (?1, ?2, datetime('now'), datetime('now'))
+            ON CONFLICT(fingerprint) DO UPDATE
+                SET full=excluded.full,
+                    updated_at=datetime('now');
             ",
             params![fpr.to_string(), file],
         )?;
@@ -211,7 +222,8 @@ impl Database for Sqlite {
         conn.execute(
             "
             UPDATE certs
-            SET published_armored = ?2
+            SET published_armored = ?2,
+                updated_at=datetime('now')
             WHERE fingerprint = ?1
             ",
             params![fpr.to_string(), file],
@@ -228,7 +240,8 @@ impl Database for Sqlite {
         conn.execute(
             "
             UPDATE certs
-            SET published_binary = ?2
+            SET published_binary = ?2,
+                updated_at=datetime('now')
             WHERE fingerprint = ?1
             ",
             params![fpr.to_string(), file],
@@ -342,12 +355,13 @@ impl Database for Sqlite {
         let conn = self.pool.get()?;
         conn.execute(
             "
-            INSERT INTO emails (email, wkd_hash, primary_fingerprint)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO emails (email, wkd_hash, primary_fingerprint, created_at, updated_at)
+            VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))
             ON CONFLICT(email) DO UPDATE
                 SET email=excluded.email,
                     wkd_hash=excluded.wkd_hash,
-                    primary_fingerprint=excluded.primary_fingerprint
+                    primary_fingerprint=excluded.primary_fingerprint,
+                    updated_at=datetime('now');
             ",
             params![
                 email.to_string(),
@@ -380,11 +394,13 @@ impl Database for Sqlite {
         let conn = self.pool.get()?;
         conn.execute(
             "
-            INSERT INTO cert_identifiers (primary_fingerprint, fingerprint)
-            VALUES (?1, ?2)
+            INSERT INTO cert_identifiers
+                (primary_fingerprint, fingerprint, created_at, updated_at)
+            VALUES (?1, ?2, datetime('now'), datetime('now'))
             ON CONFLICT(fingerprint) DO UPDATE
                 SET fingerprint=excluded.fingerprint,
-                    primary_fingerprint=excluded.primary_fingerprint;
+                    primary_fingerprint=excluded.primary_fingerprint,
+                    updated_at=datetime('now');
             ",
             params![primary_fpr.to_string(), from.to_string(),],
         )?;
