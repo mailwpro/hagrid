@@ -65,6 +65,8 @@ impl Sqlite {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS emails (
                 email                  TEXT NOT NULL UNIQUE,
+                wkd_hash               TEXT NOT NULL UNIQUE, -- equals `email |> localpart |> tolower |> zbase32`
+
                 primary_fingerprint    TEXT NOT NULL
             )",
             [],
@@ -343,13 +345,16 @@ impl Database for Sqlite {
         let conn = self.pool.get()?;
         conn.execute(
             "
-            INSERT INTO emails (email, primary_fingerprint)
-            VALUES (?1, ?2)
+            INSERT INTO emails (email, wkd_hash, primary_fingerprint)
+            VALUES (?1, ?2, ?3)
             ON CONFLICT(email) DO UPDATE
-                SET email=excluded.email, primary_fingerprint=excluded.primary_fingerprint
+                SET email=excluded.email,
+                    wkd_hash=excluded.wkd_hash,
+                    primary_fingerprint=excluded.primary_fingerprint
             ",
             params![
                 email.to_string(),
+                wkd::encode_wkd(email.to_string())?.0,
                 fpr.to_string(),
             ],
         )?;
