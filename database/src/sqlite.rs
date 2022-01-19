@@ -24,7 +24,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 
 pub struct Sqlite {
     pool: r2d2::Pool<SqliteConnectionManager>,
-
+    keys_db_file: PathBuf,
     keys_dir_log: PathBuf,
     dry_run: bool,
 }
@@ -33,10 +33,43 @@ impl Sqlite {
     pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self> {
         let base_dir: PathBuf = base_dir.into();
 
-        let db_file = base_dir.join("keys.sqlite");
-        let manager = SqliteConnectionManager::file(db_file);
+        let keys_db_file = base_dir.join("keys.sqlite");
+        let manager = SqliteConnectionManager::file(&keys_db_file);
 
-        Self::new_internal(base_dir, manager)
+        let keys_dir_log = base_dir.join("log");
+        create_dir_all(&keys_dir_log)?;
+
+        let dry_run = false;
+
+        let pool = Self::build_pool(manager)?;
+        let conn = pool.get()?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS certs (
+                fingerprint            TEXT NOT NULL PRIMARY KEY,
+                full                   TEXT NOT NULL,
+                published              TEXT, --make this NOT NULL later
+                published_not_armored  BLOB
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cert_identifiers (
+                fingerprint            TEXT NOT NULL UNIQUE,
+                keyid                  TEXT NOT NULL UNIQUE AS (substr(fingerprint, -16)),
+
+                primary_fingerprint    TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS emails (
+                email                  TEXT NOT NULL UNIQUE,
+                primary_fingerprint    TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        Ok(Self { pool, keys_db_file, keys_dir_log, dry_run })
     }
 
     #[cfg(test)]
@@ -75,46 +108,6 @@ impl Sqlite {
         manager: SqliteConnectionManager,
     ) -> Result<r2d2::Pool<SqliteConnectionManager>> {
         Ok(r2d2::Pool::builder().max_size(2).build(manager)?)
-    }
-
-    fn new_internal(
-        base_dir: PathBuf,
-        manager: SqliteConnectionManager,
-    ) -> Result<Self> {
-        let keys_dir_log = base_dir.join("log");
-        create_dir_all(&keys_dir_log)?;
-
-        let dry_run = false;
-
-        let pool = Self::build_pool(manager)?;
-        let conn = pool.get()?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS certs (
-                fingerprint            TEXT NOT NULL PRIMARY KEY,
-                full                   TEXT NOT NULL,
-                published              TEXT, --make this NOT NULL later
-                published_not_armored  BLOB
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS cert_identifiers (
-                fingerprint            TEXT NOT NULL UNIQUE,
-                keyid                  TEXT NOT NULL UNIQUE AS (substr(fingerprint, -16)),
-
-                primary_fingerprint    TEXT NOT NULL
-            )",
-            [],
-        )?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS emails (
-                email                  TEXT NOT NULL UNIQUE,
-                primary_fingerprint    TEXT NOT NULL
-            )",
-            [],
-        )?;
-
-        Ok(Self { pool, keys_dir_log, dry_run })
     }
 
     fn primary_fpr_by_any_fpr(
@@ -162,11 +155,11 @@ impl Sqlite {
 }
 
 impl Database for Sqlite {
-    type MutexGuard = String;
+    type MutexGuard = FlockMutexGuard;
     type TempCert = Vec<u8>;
 
     fn lock(&self) -> Result<Self::MutexGuard> {
-        Ok("locked :)".to_owned())
+        FlockMutexGuard::lock(&self.keys_db_file)
     }
 
     fn write_to_temp(&self, content: &[u8]) -> Result<Self::TempCert> {
