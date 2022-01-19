@@ -103,6 +103,7 @@ pub enum EmailAddressStatus {
     Revoked,
 }
 
+#[derive(Debug)]
 pub enum ImportResult {
     New(TpkStatus),
     Updated(TpkStatus),

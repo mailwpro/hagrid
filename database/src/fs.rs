@@ -771,20 +771,41 @@ mod tests {
 
     #[test]
     fn new() {
-        let (_tmp_dir, db, _log_path) = open_db();
-        let k1 = CertBuilder::new().add_userid("a@invalid.example.org")
-            .generate().unwrap().0;
-        let k2 = CertBuilder::new().add_userid("b@invalid.example.org")
-            .generate().unwrap().0;
-        let k3 = CertBuilder::new().add_userid("c@invalid.example.org")
-            .generate().unwrap().0;
+        use crate::ImportResult;
 
-        assert!(db.merge(k1).unwrap().into_tpk_status().email_status.len() > 0);
-        assert!(db.merge(k2.clone()).unwrap().into_tpk_status().email_status.len() > 0);
-        assert!(!db.merge(k2).unwrap().into_tpk_status().email_status.len() > 0);
-        assert!(db.merge(k3.clone()).unwrap().into_tpk_status().email_status.len() > 0);
-        assert!(!db.merge(k3.clone()).unwrap().into_tpk_status().email_status.len() > 0);
-        assert!(!db.merge(k3).unwrap().into_tpk_status().email_status.len() > 0);
+        let (_tmp_dir, db, _log_path) = open_db();
+        let k1 = CertBuilder::new()
+            .add_userid("a@invalid.example.org")
+            .generate()
+            .unwrap()
+            .0;
+        let k2 = CertBuilder::new()
+            .add_userid("b@invalid.example.org")
+            .generate()
+            .unwrap()
+            .0;
+        let k3 = CertBuilder::new()
+            .add_userid("c@invalid.example.org")
+            .add_userid("d@invalid.example.org")
+            .generate()
+            .unwrap()
+            .0;
+
+        assert!(matches!(
+                db.merge(k1).unwrap(),
+                ImportResult::New(status) if status.email_status.len() == 1));
+        assert!(matches!(
+                db.merge(k2.clone()).unwrap(),
+                ImportResult::New(status) if status.email_status.len() == 1));
+        assert!(matches!(
+                db.merge(k2).unwrap(),
+                ImportResult::Unchanged(status) if status.email_status.len() == 1));
+        assert!(matches!(
+                db.merge(k3.clone()).unwrap(),
+                ImportResult::New(status) if status.email_status.len() == 2));
+        assert!(matches!(
+                db.merge(k3).unwrap(),
+                ImportResult::Unchanged(status) if status.email_status.len() == 2));
     }
 
     #[test]
