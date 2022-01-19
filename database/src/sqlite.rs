@@ -26,7 +26,6 @@ pub struct Sqlite {
     pool: r2d2::Pool<SqliteConnectionManager>,
     keys_db_file: PathBuf,
     keys_dir_log: PathBuf,
-    dry_run: bool,
 }
 
 impl Sqlite {
@@ -38,8 +37,6 @@ impl Sqlite {
 
         let keys_dir_log = base_dir.join("log");
         create_dir_all(&keys_dir_log)?;
-
-        let dry_run = false;
 
         let pool = Self::build_pool(manager)?;
         let conn = pool.get()?;
@@ -72,7 +69,7 @@ impl Sqlite {
             [],
         )?;
 
-        Ok(Self { pool, keys_db_file, keys_dir_log, dry_run })
+        Ok(Self { pool, keys_db_file, keys_dir_log})
     }
 
     #[cfg(test)]
