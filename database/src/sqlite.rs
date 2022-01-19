@@ -768,6 +768,45 @@ mod tests {
     }
 
     #[test]
+    fn lookup_primary_fingerprint() -> Result<()> {
+        use TryFrom;
+        let (_tmp_dir, db, _log_path) = open_db();
+
+        let email = Email::from_str("a@invalid.example.org")?;
+        let cert = CertBuilder::new()
+            .add_userid(email.to_string())
+            .generate()
+            .unwrap()
+            .0;
+        let expected_fp =
+            Fingerprint::try_from(cert.primary_key().fingerprint())?;
+
+        db.merge(cert)?;
+        db.link_email(&email, &expected_fp)?;
+
+        assert_eq!(
+            expected_fp,
+            db.lookup_primary_fingerprint(&crate::Query::ByFingerprint(
+                expected_fp.clone()
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            expected_fp,
+            db.lookup_primary_fingerprint(&crate::Query::ByKeyID(
+                expected_fp.clone().into()
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            expected_fp,
+            db.lookup_primary_fingerprint(&crate::Query::ByEmail(email))
+                .unwrap()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn uid_verification() {
         let (_tmp_dir, mut db, log_path) = open_db();
         test::test_uid_verification(&mut db, &log_path);
