@@ -49,7 +49,7 @@ default-features = false
 features = ["rocket"]
 
 [patch.crates-io]
-gettext-macros = { git = "https://github.com/Valodim/gettext-macros", rev = "d15fa92ef6ac28269890557fe9c3767d01442633" }
+gettext-macros = { git = "https://github.com/Plume-org/gettext-macros", rev = "2227905fb949ee107053eeda982530407e51ae99" }
 
 [dependencies.lettre]
 version = "0.10.0-pre"
