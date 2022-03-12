@@ -1,0 +1,52 @@
+<div class="about">
+    <center><h2>
+<a href="/about">Info</a> | <a href="/about/news">Novinky</a> | <a href="/about/usage">Použití</a>  | <a href="/about/faq">Časté dotazy</a> | <a href="/about/stats">Statistiky</a> | Soukromí</h2></center>
+
+    <p style="text-align: left;">Veřejný server klíčů, který běží na adrese keys.openpgp.org, zpracovává, ukládá , uchovává a
+distribuuje data klíčů OpenPGP. Konkrétní způsob, jakým jsou data zpracovávána
+se liší podle typu takto:</p>
+<ul>
+<li>
+<b>Emailové adresy</b><p>E-mailové adresy obsažené v <abbr title="Packet Tag 13">Uživatelských
+ID</abbr> jsou osobně identifikovatelné údaje (PII).
+Zvláštní pozornost je věnována tomu, aby se zajistilo, že jsou používány pouze se
+souhlasem:</p>
+<ul>
+<li>Vydávání vyžaduje <a target="_blank" href="https://en.wikipedia.org/wiki/Opt-in_email#Confirmed_opt-in_(COI)_/_Double_opt-in_(DOI)">dvojí
+opt-in</a> ověření, aby se prokázalo vlastnictví
+dané e-mailové adresy.</li>
+                      <li>Adresy lze vyhledávat podle přesné e-mailové adresy,
+ale ne podle přidruženého jména.</li>
+                      <li>Výčet adres není možný.</li>
+                      <li>Vymazání adres je možné pomocí jednoduchého důkazu
+o vlastnictví automatizovaným způsobem podobným zveřejnění. Odstranění adresy ze seznamu, pokud výše uvedené není
+možné, napište na adresu support zavináč keys tečka openpgp tečka
+org.</li>
+                  </ul>
+<p>Tyto údaje nejsou nikdy předávány hromadně ("jako dump") třetím
+stranám.</p>
+          </li>
+          <li>
+<b>Data veřejných klíčů</b><p>Kryptografický obsah klíčů OpenPGP se nepovažuje za osobní.
+identifikovatelné informace. Zahrnuje
+<abbr title="Packet Tags 6 and 14">veřejné klíče</abbr>,
+<abbr title="Packet Tag 2, Signature types 0x10-0x13, 0x18, 0x19, 0x1F">self-signatures</abbr> a
+<abbr title="Packet Tag 2, Signature types 0x20, 0x28, 0x30">podpisy revokací</abbr>.</p>
+              <p>Tyto údaje nejsou obvykle hromadně k dispozici ("jako dump"),
+ale mohou být na vyžádání předány třetím osobám.
+stranám pro účely vývoje nebo výzkumu.</p>
+          </li>
+          <li>
+<b>Jiná data uživatelského ID</b><p>Klíč OpenPGP může obsahovat jiné osobní údaje než e-mailové
+adresy, například <abbr title="Packet Tag 13">ID uživatele</abbr>
+které neobsahují e-mailové adresy, nebo <abbr title="Packet Tag 17">obrázkové atributy</abbr>. Tyto údaje jsou odstraněny
+při nahrávání a nikdy se žádným způsobem neukládají, nezpracovávají ani nešíří.</p>
+              <p>OpenPGP pakety, které nebyly výslovně zmíněny výše, jsou
+během nahrávání odstraněny a nikdy nejsou uloženy, zpracovány ani se
+žádným způsobem nešíří.</p>
+          </li>
+      </ul>
+<p style="text-align: left">Data nejsou nikdy předávána třetím stranám mimo těch,
+která jsou dostupná z <a href="/about/api">veřejných rozhraní API</a>
+a těch popsaných v těchto zásadách.</p>
+</div>
