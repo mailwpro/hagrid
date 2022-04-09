@@ -2,15 +2,13 @@ use std::path::{Path, PathBuf};
 
 use crate::counters;
 use handlebars::Handlebars;
-use lettre::builder::{EmailBuilder, Mailbox, MimeMultipartType, PartBuilder};
-use lettre::{file::FileTransport, SendmailTransport, Transport as LettreTransport};
+use lettre::message::{Mailbox, MultiPart, SinglePart, header};
+use lettre::{FileTransport, SendmailTransport, Transport as LettreTransport};
 use serde::Serialize;
 use uuid::Uuid;
 
 use gettext_macros::i18n;
 use rocket_i18n::I18n;
-
-use rfc2047::rfc2047_encode;
 
 use crate::template_helpers;
 
@@ -81,8 +79,9 @@ impl Service {
             .host_str()
             .ok_or_else(|| anyhow!("No host in base-URI"))?
             .to_string();
+        let from = from.parse().map_err(|_| anyhow!("From must be valid email address"))?;
         Ok(Self {
-            from: from.into(),
+            from,
             domain,
             templates,
             transport,
@@ -203,7 +202,7 @@ impl Service {
 
     fn send(
         &self,
-        to: &[&Email],
+        tos: &[&Email],
         subject: &str,
         template: &str,
         locale: &str,
@@ -212,46 +211,44 @@ impl Service {
         let (html, txt) = self.render_template(template, locale, ctx)?;
 
         if cfg!(debug_assertions) {
-            for recipient in to.iter() {
+            for recipient in tos.iter() {
                 println!("To: {}", recipient);
             }
             println!("{}", &txt);
         }
 
-        // build this ourselves, as a temporary workaround for https://github.com/lettre/lettre/issues/400
-        let text = PartBuilder::new()
-            .body(txt)
-            .header(("Content-Type", "text/plain; charset=utf-8"))
-            .header(("Content-Transfer-Encoding", "8bit"))
-            .build();
-
-        let html = PartBuilder::new()
-            .body(html)
-            .header(("Content-Type", "text/html; charset=utf-8"))
-            .header(("Content-Transfer-Encoding", "8bit"))
-            .build();
-
-        let email = EmailBuilder::new()
+        let mut email = lettre::Message::builder()
             .from(self.from.clone())
-            .subject(rfc2047_encode(subject))
-            .message_id(format!("<{}@{}>", Uuid::new_v4(), self.domain))
-            .message_type(MimeMultipartType::Alternative)
-            .header(("Content-Transfer-Encoding", "8bit"))
-            .child(text)
-            .child(html);
+            .subject(subject)
+            .message_id(Some(format!("<{}@{}>", Uuid::new_v4(), self.domain)))
+            .header(header::ContentTransferEncoding::EightBit);
 
-        let email = to.iter().fold(email, |email, to| email.to(to.to_string()));
+        for to in tos.iter() {
+            email = email.to(to.as_str().parse().unwrap());
+        }
 
-        let email = email.build()?;
+        let email = email.multipart(
+            MultiPart::alternative()
+                .singlepart(
+                    SinglePart::builder()
+                        .header(header::ContentTransferEncoding::EightBit)
+                        .header(header::ContentType::TEXT_PLAIN)
+                        .body(txt)
+                )
+                .singlepart(SinglePart::builder()
+                        .header(header::ContentTransferEncoding::EightBit)
+                        .header(header::ContentType::TEXT_HTML)
+                        .body(html)),
+        )?;
 
         match self.transport {
             Transport::Sendmail => {
-                let mut transport = SendmailTransport::new();
-                transport.send(email)?;
+                let transport = SendmailTransport::new();
+                transport.send(&email)?;
             }
             Transport::Filemail(ref path) => {
-                let mut transport = FileTransport::new(path);
-                transport.send(email)?;
+                let transport = FileTransport::new(path);
+                transport.send(&email)?;
             }
         }
 
@@ -259,31 +256,17 @@ impl Service {
     }
 }
 
-// for some reason, this is no longer public in lettre itself
-// FIXME replace with builtin struct on lettre update
-// see https://github.com/lettre/lettre/blob/master/lettre/src/file/mod.rs#L41
-#[cfg(test)]
-#[derive(Deserialize)]
-struct SerializableEmail {
-    #[serde(alias = "envelope")]
-    _envelope: lettre::Envelope,
-    #[serde(alias = "message_id")]
-    _message_id: String,
-    message: Vec<u8>,
-}
-
 /// Returns and removes the first mail it finds from the given
 /// directory.
 #[cfg(test)]
 pub fn pop_mail(dir: &Path) -> Result<Option<String>> {
-    use std::fs;
+    use std::{fs, fs::read_to_string};
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         if entry.file_type()?.is_file() {
-            let fh = fs::File::open(entry.path())?;
+            let body = read_to_string(entry.path())?.replace("\r\n", "\n");
             fs::remove_file(entry.path())?;
-            let mail: SerializableEmail = ::serde_json::from_reader(fh)?;
-            let body = String::from_utf8_lossy(&mail.message).to_string();
+            println!("{}", body);
             return Ok(Some(body));
         }
     }
@@ -346,15 +329,14 @@ mod test {
                 (h, v)
             })
             .collect();
-        assert!(headers.contains(&("Content-Transfer-Encoding", "8bit")));
         assert!(headers.contains(&("Content-Type", "text/plain; charset=utf-8")));
         assert!(headers.contains(&("Content-Type", "text/html; charset=utf-8")));
-        assert!(headers.contains(&("From", "<test@localhost>")));
-        assert!(headers.contains(&("To", "<recipient@example.org>")));
+        assert!(headers.contains(&("From", "test@localhost")));
+        assert!(headers.contains(&("To", "recipient@example.org")));
         assert_header(&headers, "Content-Type", |v| {
             v.starts_with("multipart/alternative")
         });
-        assert_header(&headers, "Date", |v| v.contains("+0000"));
+        assert_header(&headers, "Date", |v| v.contains("-0000"));
         assert_header(&headers, "Message-ID", |v| v.contains("@localhost>"));
     }
 
@@ -413,7 +395,7 @@ mod test {
         assert!(mail_content.contains("test/about"));
         assert!(mail_content.contains("あなたのメールアド"));
         assert!(mail_content.contains(
-            "Subject:   =?utf-8?q?localhost=E3=81=AE=E3=81=82=E3=81=AA=E3=81=9F=E3=81=AE?="
+            "Subject:   =?utf-8?b?bG9jYWxob3N044Gu44GC44Gq44Gf44Gu6Y2144Gu44Gf44KB44GrbG9jYWxob3N044KS5qSc6Ki844GZ44KL?="
         ));
     }
 
@@ -467,7 +449,7 @@ mod test {
         assert!(mail_content.contains("test/about"));
         assert!(mail_content.contains("この鍵の掲示されたア"));
         assert!(mail_content.contains(
-            "Subject: =?utf-8?q?localhost=E3=81=AE=E9=8D=B5=E3=82=92=E7=AE=A1=E7=90=86?="
+            "Subject: =?utf-8?b?bG9jYWxob3N044Gu6Y2144KS566h55CG44GZ44KL?="
         ));
     }
 

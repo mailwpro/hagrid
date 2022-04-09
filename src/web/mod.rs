@@ -887,7 +887,7 @@ pub mod tests {
         check_verify_link(&client, &token, "foo@invalid.example.com", "de");
         let mail_content = pop_mail(&filemail_into).unwrap().unwrap();
         assert!(mail_content.contains("Dies ist eine automatisierte Nachricht"));
-        assert!(mail_content.contains("Subject: =?utf-8?q?Best=C3=A4tige?= foo@invalid.example.com\r\n\t=?utf-8?q?f=C3=BCr?= deinen =?utf-8?q?Schl=C3=BCssel?= auf local.connection"));
+        assert!(mail_content.contains("Subject: =?utf-8?b?QmVzdMOkdGlnZQ==?= foo@invalid.example.com \n =?utf-8?b?ZsO8cg==?= deinen =?utf-8?b?U2NobMO8c3NlbA==?= auf \n local.connection"));
     }
 
     #[test]
