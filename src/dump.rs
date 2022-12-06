@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 
 use self::openpgp::crypto::mpi;
-use self::openpgp::crypto::{SessionKey, S2K};
+use self::openpgp::crypto::S2K;
 use self::openpgp::fmt::hex;
 use self::openpgp::packet::header::CTB;
 use self::openpgp::packet::prelude::*;
@@ -11,6 +11,38 @@ use self::openpgp::parse::{map::Map, PacketParserResult, Parse};
 use self::openpgp::types::{Duration, SymmetricAlgorithm, Timestamp};
 use self::openpgp::{Packet, Result};
 use sequoia_openpgp as openpgp;
+
+pub struct SessionKey {
+    pub session_key: openpgp::crypto::SessionKey,
+    pub symmetric_algo: Option<SymmetricAlgorithm>,
+}
+
+impl SessionKey {
+    /// Returns an object that implements Display for explicitly opting into
+    /// printing a `SessionKey`.
+    pub fn display_sensitive(&self) -> SessionKeyDisplay {
+        SessionKeyDisplay { csk: self }
+    }
+}
+
+/// Helper struct for intentionally printing session keys with format! and {}.
+///
+/// This struct implements the `Display` trait to print the session key. This
+/// construct requires the user to explicitly call
+/// [`SessionKey::display_sensitive`]. By requiring the user to opt-in, this
+/// will hopefully reduce that the chance that the session key is inadvertently
+/// leaked, e.g., in a log that may be publicly posted.
+pub struct SessionKeyDisplay<'a> {
+    csk: &'a SessionKey,
+}
+
+/// Print the session key without prefix in hexadecimal representation.
+impl<'a> std::fmt::Display for SessionKeyDisplay<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let sk = self.csk;
+        write!(f, "{}", hex::encode(&sk.session_key))
+    }
+}
 
 #[derive(Debug)]
 pub enum Kind {
@@ -86,29 +118,28 @@ where
             }
             Packet::SEIP(_) if sk.is_some() => {
                 message_encrypted = true;
-                let sk = sk.as_ref().unwrap();
-                let mut decrypted_with = None;
-                for algo in 1..20 {
-                    let algo = SymmetricAlgorithm::from(algo);
-                    if let Ok(size) = algo.key_size() {
-                        if size != sk.len() {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
+                let sk = sk.unwrap();
+                let decrypted_with = if let Some(algo) = sk.symmetric_algo {
+                    // We know which algorithm to use, so only try decrypting
+                    // with that one.
+                    pp.decrypt(algo, &sk.session_key).is_ok().then(|| algo)
+                } else {
+                    // We don't know which algorithm to use,
+                    // try to find one that decrypts the message.
+                    (1u8..=19)
+                        .map(SymmetricAlgorithm::from)
+                        .find(|algo| pp.decrypt(*algo, &sk.session_key).is_ok())
+                };
 
-                    if let Ok(_) = pp.decrypt(algo, sk) {
-                        decrypted_with = Some(algo);
-                        break;
-                    }
-                }
                 let mut fields = Vec::new();
-                fields.push(format!("Session key: {}", hex::encode(sk)));
+                fields.push(format!("Session key: {}", &sk.display_sensitive()));
                 if let Some(algo) = decrypted_with {
                     fields.push(format!("Symmetric algo: {}", algo));
                     fields.push("Decryption successful".into());
                 } else {
+                    if let Some(algo) = sk.symmetric_algo {
+                        fields.push(format!("Indicated Symmetric algo: {}", algo));
+                    };
                     fields.push("Decryption failed".into());
                 }
                 Some(fields)
@@ -126,14 +157,14 @@ where
                     unreachable!()
                 };
 
-                let _ = pp.decrypt(algo, sk);
+                let _ = pp.decrypt(algo, &sk.session_key);
 
                 let mut fields = Vec::new();
-                fields.push(format!("Session key: {}", hex::encode(sk)));
-                if pp.encrypted() {
-                    fields.push("Decryption failed".into());
-                } else {
+                fields.push(format!("Session key: {}", sk.display_sensitive()));
+                if pp.processed() {
                     fields.push("Decryption successful".into());
+                } else {
+                    fields.push("Decryption failed".into());
                 }
                 Some(fields)
             }
@@ -403,8 +434,8 @@ impl PacketDumper {
                         sym,
                     } => {
                         writeln!(output, "{}  Curve: {}", ii, curve)?;
-                        writeln!(output, "{}  Hash algo: {}", ii, hash)?;
-                        writeln!(output, "{}  Symmetric algo: {}", ii, sym)?;
+                        writeln!(output, "{}  KDF hash algo: {}", ii, hash)?;
+                        writeln!(output, "{}  KEK symmetric algo: {}", ii, sym)?;
                         pd.dump_mpis(output, &ii, &[q.value()], &["q"])?;
                     }
                     mpi::PublicKey::Unknown { mpis, rest } => {
@@ -465,17 +496,11 @@ impl PacketDumper {
                                         let keys: Vec<String> =
                                             (0..mpis.len()).map(|i| format!("mpi{}", i)).collect();
                                         pd.dump_mpis(
-                                            output,
-                                            &ii,
-                                            &mpis
-                                                .iter()
-                                                .map(|m| {
-                                                    m.value().iter().as_slice()
-                                                })
-                                                .collect::<Vec<_>>()[..],
-                                            &keys
-                                                .iter()
-                                                .map(|k| k.as_str())
+                                            output, &ii,
+                                            &mpis.iter().map(|m| {
+                                                m.value().iter().as_slice()
+                                            }).collect::<Vec<_>>()[..],
+                                            &keys.iter().map(|k| k.as_str())
                                                 .collect::<Vec<_>>()[..],
                                         )?;
 
@@ -787,8 +812,9 @@ impl PacketDumper {
             }
         }
 
+        writeln!(output, "{}", i)?;
+
         if let Some(map) = map {
-            writeln!(output, "{}", i)?;
             let mut hd = hex::Dumper::new(
                 output,
                 self.indentation_for_hexdump(
@@ -815,8 +841,6 @@ impl PacketDumper {
             }
 
             let output = hd.into_inner();
-            writeln!(output, "{}", i)?;
-        } else {
             writeln!(output, "{}", i)?;
         }
 
@@ -864,9 +888,7 @@ impl PacketDumper {
                 i,
                 t.convert(),
                 if let Some(creation) = sig.signature_creation_time() {
-                    (creation + std::time::Duration::from(*t))
-                        .convert()
-                        .to_string()
+                    (creation + std::time::Duration::from(*t)).convert().to_string()
                 } else {
                     " (no Signature Creation Time subpacket)".into()
                 }
