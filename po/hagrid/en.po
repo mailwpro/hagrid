@@ -353,10 +353,10 @@ msgid ""
 msgstr "To let others find this key from your email address \"{{userid}}\","
 
 msgid "No key found for fingerprint {}"
-msgstr ""
+msgstr "No key found for fingerprint {}"
 
 msgid "No key found for key id {}"
-msgstr ""
+msgstr "No key found for key id {}"
 
 msgid "No key found for email address {}"
 msgstr "Verifying your email address…"
