@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::counters;
 use handlebars::Handlebars;
-use lettre::message::{Mailbox, MultiPart, SinglePart, header};
+use lettre::message::{header, Mailbox, MultiPart, SinglePart};
 use lettre::{FileTransport, SendmailTransport, Transport as LettreTransport};
 use serde::Serialize;
 use uuid::Uuid;
@@ -79,7 +79,9 @@ impl Service {
             .host_str()
             .ok_or_else(|| anyhow!("No host in base-URI"))?
             .to_string();
-        let from = from.parse().map_err(|_| anyhow!("From must be valid email address"))?;
+        let from = from
+            .parse()
+            .map_err(|_| anyhow!("From must be valid email address"))?;
         Ok(Self {
             from,
             domain,
@@ -233,12 +235,14 @@ impl Service {
                     SinglePart::builder()
                         .header(header::ContentTransferEncoding::EightBit)
                         .header(header::ContentType::TEXT_PLAIN)
-                        .body(txt)
+                        .body(txt),
                 )
-                .singlepart(SinglePart::builder()
+                .singlepart(
+                    SinglePart::builder()
                         .header(header::ContentTransferEncoding::EightBit)
                         .header(header::ContentType::TEXT_HTML)
-                        .body(html)),
+                        .body(html),
+                ),
         )?;
 
         match self.transport {
@@ -448,9 +452,9 @@ mod test {
         assert!(mail_content.contains("testtoken"));
         assert!(mail_content.contains("test/about"));
         assert!(mail_content.contains("この鍵の掲示されたア"));
-        assert!(mail_content.contains(
-            "Subject: =?utf-8?b?bG9jYWxob3N044Gu6Y2144KS566h55CG44GZ44KL?="
-        ));
+        assert!(
+            mail_content.contains("Subject: =?utf-8?b?bG9jYWxob3N044Gu6Y2144KS566h55CG44GZ44KL?=")
+        );
     }
 
     #[test]
