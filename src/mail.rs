@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::counters;
-use handlebars::Handlebars;
 use lettre::message::{header, Mailbox, MultiPart, SinglePart};
 use lettre::{FileTransport, SendmailTransport, Transport as LettreTransport};
+use rocket_dyn_templates::handlebars::Handlebars;
 use serde::Serialize;
 use uuid::Uuid;
 

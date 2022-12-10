@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use handlebars::Handlebars;
+use rocket_dyn_templates::handlebars::Handlebars;
 
 use crate::i18n::I18NHelper;
 use crate::web::get_i18n;

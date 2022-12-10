@@ -1412,14 +1412,10 @@ pub mod tests {
     }
 
     fn vks_publish_submit_response<'a>(client: &'a Client, data: &[u8]) -> LocalResponse<'a> {
-        let ct = ContentType::with_params(
-            "multipart",
-            "form-data",
-            (
-                "boundary",
-                "---------------------------14733842173518794281682249499",
-            ),
-        );
+        let ct = ContentType::new("multipart", "form-data").with_params((
+            "boundary",
+            "---------------------------14733842173518794281682249499",
+        ));
 
         let header = b"-----------------------------14733842173518794281682249499\r\n\
               Content-Disposition: form-data; name=\"csrf\"\r\n\
