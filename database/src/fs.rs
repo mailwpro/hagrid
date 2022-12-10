@@ -980,6 +980,13 @@ mod tests {
     }
 
     #[test]
+    fn unsigned_uids() {
+        let (_tmp_dir, mut db, log_path) = open_db();
+        test::test_unsigned_uids(&mut db, &log_path);
+        db.check_consistency().expect("inconsistent database");
+    }
+
+    #[test]
     fn reverse_fingerprint_to_path() {
         let tmpdir = TempDir::new().unwrap();
         let db = Filesystem::new_from_base(tmpdir.path()).unwrap();

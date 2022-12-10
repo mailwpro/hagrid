@@ -253,6 +253,7 @@ pub trait Database: Sync + Send {
                 }
             })
             .flatten()
+            .filter(|(binding, _)| binding.self_signatures().next().is_some())
             .filter(|(binding, email)| {
                 known_uids.contains(binding.userid()) || published_emails.contains(email)
             })
@@ -404,6 +405,7 @@ pub trait Database: Sync + Send {
 
         let mut email_status: Vec<_> = tpk_full
             .userids()
+            .filter(|binding| binding.self_signatures().next().is_some())
             .flat_map(|binding| {
                 let uid = binding.userid();
                 if let Ok(email) = Email::try_from(uid) {

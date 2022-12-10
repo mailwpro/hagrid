@@ -1278,6 +1278,47 @@ pub fn test_bad_uids(db: &mut impl Database, log_path: &Path) {
     );
 }
 
+fn cert_without_signature_at(cert: Cert, mut index: i32) -> Cert {
+    let packets = cert
+        .into_packet_pile()
+        .into_children()
+        .filter(|pkt| match pkt {
+            Packet::Signature(_) => {
+                let result = index == 0;
+                index -= 1;
+                result
+            }
+            _ => true,
+        });
+    Cert::from_packets(packets).unwrap()
+}
+
+pub fn test_unsigned_uids(db: &mut impl Database, log_path: &Path) {
+    let str_uid1 = "test1@example.com";
+    let str_uid2 = "test2@example.com";
+    let tpk = CertBuilder::new()
+        .add_userid(str_uid1)
+        .add_userid(str_uid2)
+        .generate()
+        .unwrap()
+        .0;
+    let fpr = Fingerprint::try_from(tpk.fingerprint()).unwrap();
+    let email1 = Email::from_str(str_uid1).unwrap();
+
+    let tpk = cert_without_signature_at(tpk, 1);
+
+    let tpk_status = db.merge(tpk).unwrap().into_tpk_status();
+    check_log_entry(log_path, &fpr);
+    assert_eq!(
+        TpkStatus {
+            is_revoked: false,
+            email_status: vec!((email1.clone(), EmailAddressStatus::NotPublished),),
+            unparsed_uids: 0,
+        },
+        tpk_status
+    );
+}
+
 pub fn test_no_selfsig(db: &mut impl Database, log_path: &Path) {
     let (mut tpk, revocation) = CertBuilder::new().generate().unwrap();
     let fpr = Fingerprint::try_from(tpk.fingerprint()).unwrap();
