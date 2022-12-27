@@ -83,8 +83,7 @@ pub fn do_regenerate(config: &HagridConfig) -> Result<()> {
         .keys_external_dir
         .as_ref()
         .unwrap()
-        .join("links")
-        .join("by-email");
+        .join("pub");
     let dirs: Vec<_> = WalkDir::new(published_dir)
         .min_depth(1)
         .max_depth(1)
