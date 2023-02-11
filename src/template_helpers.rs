@@ -19,7 +19,6 @@ impl TemplateOverrides {
     pub fn get_template_override(&self, lang: &str, tmpl: &str) -> Option<String> {
         let template_name = format!("{}/{}/{}", self.0, lang, tmpl);
         if self.1.contains(&template_name) {
-            println!("{}", &template_name);
             Some(template_name)
         } else {
             None

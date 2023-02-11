@@ -365,7 +365,6 @@ pub trait Database: Sync + Send {
 
     fn update_write_log(&self, fpr_primary: &Fingerprint) {
         let log_name = self.get_current_log_filename();
-        println!("{}", log_name);
         if let Err(e) = self.write_log_append(&log_name, fpr_primary) {
             error!("Error writing to log! {} {} {}", &log_name, &fpr_primary, e);
         }
