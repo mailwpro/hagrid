@@ -370,11 +370,11 @@ msgstr "Łącze jest nieważne lub wygasło"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Nieprawidłowy adres: {address}"
+msgstr "Nieprawidłowy adres: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Brak klucza dla adresu: {address}"
+msgstr "Brak klucza dla adresu: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Zapytanie o ten adres zostało niedawno wysłane."

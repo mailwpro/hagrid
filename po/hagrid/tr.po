@@ -373,11 +373,11 @@ msgstr "Bu bağlantı geçersiz veya süresi geçmiş."
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Hatalı adres: {address}"
+msgstr "Hatalı adres: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Anahtarsız adres: {address}"
+msgstr "Anahtarsız adres: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Bu adres için bir istek kısa bir süre önce zaten gönderilmişti."

@@ -371,11 +371,11 @@ msgstr "Questo link non è valido o è scaduto"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Indirizzo non valido: {address}"
+msgstr "Indirizzo non valido: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Nessuna chiave per l'indirizzo: {address}"
+msgstr "Nessuna chiave per l'indirizzo: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Una richiesta per questo indirizzo è già stata inviata recentemente."

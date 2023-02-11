@@ -375,11 +375,11 @@ msgstr "Dieser Link ist ungültig, oder bereits abgelaufen."
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Ungültiges Adress-Format: {address}"
+msgstr "Ungültiges Adress-Format: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Kein Schlüssel gefunden für {address}"
+msgstr "Kein Schlüssel gefunden für {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Eine E-Mail für diesen Schlüssel wurde erst kürzlich versandt."

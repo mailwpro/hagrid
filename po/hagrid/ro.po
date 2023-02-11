@@ -375,11 +375,11 @@ msgstr "Acest link nu este valabil sau a expirat"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Adresa malformată: {address}"
+msgstr "Adresa malformată: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Nu există cheie pentru adresă: {address}"
+msgstr "Nu există cheie pentru adresă: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "O cerere a fost deja trimisă recent pentru această adresă."

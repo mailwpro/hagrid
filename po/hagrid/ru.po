@@ -373,11 +373,11 @@ msgstr "Эта ссылка неверна или просрочена"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Некорректный адрес: {address}"
+msgstr "Некорректный адрес: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Нет ключа для адреса: {address}"
+msgstr "Нет ключа для адреса: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "На этот адрес уже был недавно отправлен запрос."

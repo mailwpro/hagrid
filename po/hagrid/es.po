@@ -374,11 +374,11 @@ msgstr "Este enlace es inválido o caducado"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Dirección malformada: {address}"
+msgstr "Dirección malformada: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "No hay claves para la dirección: {address}"
+msgstr "No hay claves para la dirección: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Una solicitud para esta dirección ya se ha enviado recientemente."

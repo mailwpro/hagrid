@@ -373,11 +373,11 @@ msgstr "Den här länken är ogiltig eller har upphört att gälla"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Felformaterad adress: {address}"
+msgstr "Felformaterad adress: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Ingen nyckel för adress: {address}"
+msgstr "Ingen nyckel för adress: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "En begäran har redan skickats för den här adressen nyligen."

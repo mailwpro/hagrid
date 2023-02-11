@@ -378,11 +378,11 @@ msgstr "Denne lenken er ugyldig eller utløpt"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Deformert adresse: {address}"
+msgstr "Deformert adresse: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Ingen nøkler for adressen {address}"
+msgstr "Ingen nøkler for adressen {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "En forespørsel har allerede blitt sendt for denne adressen nylig."

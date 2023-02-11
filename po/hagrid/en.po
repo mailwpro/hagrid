@@ -359,7 +359,7 @@ msgid "No key found for key id {}"
 msgstr "No key found for key id {}"
 
 msgid "No key found for email address {}"
-msgstr "Verifying your email address…"
+msgstr "No key found for email address {}"
 
 msgid "Search by Short Key ID is not supported."
 msgstr ""

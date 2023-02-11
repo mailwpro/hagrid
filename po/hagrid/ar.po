@@ -369,11 +369,11 @@ msgstr "هذه الوصلة باطلة أو انتهت صلاحيتها"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "‫العنوان غير صحيح : {address}‬"
+msgstr "‫العنوان غير صحيح : {}‬"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "‫لا يوجد مفتاح لهذا العنوان : {address}‬"
+msgstr "‫لا يوجد مفتاح لهذا العنوان : {}‬"
 
 msgid "A request has already been sent for this address recently."
 msgstr "لقد سبق إرسال الطلب إلى هذا العنوان حديثا.‏"

@@ -365,18 +365,18 @@ msgstr "Verifieer {0} voor uw sleutel op {1}"
 
 msgctxt "Subject for manage email, {} = keyserver domain"
 msgid "Manage your key on {}"
-msgstr "Beheer uw sleutel op {domain}"
+msgstr "Beheer uw sleutel op {}"
 
 msgid "This link is invalid or expired"
 msgstr "Deze link is ongeldig of verlopen"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "Ongeldig adres: {adres}"
+msgstr "Ongeldig adres: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "Geen sleutel voor adres: {address}"
+msgstr "Geen sleutel voor adres: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "Er is onlangs al een verzoek voor dit adres verzonden."

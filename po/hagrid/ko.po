@@ -366,11 +366,11 @@ msgstr "링크가 올바르지 않거나 이미 만료됐습니다"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "잘못된 형식의 주소: {address}"
+msgstr "잘못된 형식의 주소: {}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "다음 주소와 엮인 키 없음: {address}"
+msgstr "다음 주소와 엮인 키 없음: {}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "최근에 이 주소로 이미 요청이 접수됐습니다."

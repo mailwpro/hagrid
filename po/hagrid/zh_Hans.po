@@ -357,11 +357,11 @@ msgstr "此链接无效或者已经过期"
 
 #, fuzzy
 msgid "Malformed address: {}"
-msgstr "地址格式错误：{address}"
+msgstr "地址格式错误：{}"
 
 #, fuzzy
 msgid "No key for address: {}"
-msgstr "此地址下没有密钥：{address}"
+msgstr "此地址下没有密钥：{}"
 
 msgid "A request has already been sent for this address recently."
 msgstr "对此地址的申请已经发送"
