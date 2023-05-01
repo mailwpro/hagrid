@@ -616,6 +616,22 @@ impl Database for Filesystem {
         self.read_from_path(&path, false)
     }
 
+    fn get_last_log_entry(&self) -> Result<Fingerprint> {
+        use std::fs;
+        use std::str::FromStr;
+
+        let filename = self.keys_dir_log.join(self.get_current_log_filename());
+        let log_data = fs::read_to_string(filename)?;
+        let last_entry = log_data
+            .lines()
+            .last()
+            .ok_or_else(|| anyhow!("malformed log file"))?
+            .split(' ')
+            .last()
+            .ok_or_else(|| anyhow!("malformed log file"))?;
+        Fingerprint::from_str(last_entry)
+    }
+
     /// Checks the database for consistency.
     ///
     /// Note that this operation may take a long time, and is
@@ -810,17 +826,16 @@ mod tests {
         let _ = Filesystem::new_from_base(tmpdir.path()).unwrap();
     }
 
-    fn open_db() -> (TempDir, Filesystem, PathBuf) {
+    fn open_db() -> (TempDir, Filesystem) {
         let tmpdir = TempDir::new().unwrap();
         let db = Filesystem::new_from_base(tmpdir.path()).unwrap();
-        let log_path = db.keys_dir_log.join(db.get_current_log_filename());
 
-        (tmpdir, db, log_path)
+        (tmpdir, db)
     }
 
     #[test]
     fn new() {
-        let (_tmp_dir, db, _log_path) = open_db();
+        let (_tmp_dir, db) = open_db();
         let k1 = CertBuilder::new()
             .add_userid("a@invalid.example.org")
             .generate()
@@ -869,120 +884,120 @@ mod tests {
 
     #[test]
     fn uid_verification() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_verification(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_verification(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_deletion() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_deletion(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_deletion(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn subkey_lookup() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_subkey_lookup(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_subkey_lookup(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn kid_lookup() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_kid_lookup(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_kid_lookup(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn upload_revoked_tpk() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_upload_revoked_tpk(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_upload_revoked_tpk(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_revocation() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_revocation(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_revocation(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn regenerate() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_regenerate(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_regenerate(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn key_reupload() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_reupload(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_reupload(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_replacement() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_replacement(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_replacement(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_unlinking() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_unlink_uid(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_unlink_uid(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_1() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_1(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_1(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_2() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_2(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_2(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_3() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_3(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_3(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_4() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_4(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_4(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn no_selfsig() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_no_selfsig(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_no_selfsig(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn bad_uids() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_bad_uids(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_bad_uids(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn unsigned_uids() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_unsigned_uids(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_unsigned_uids(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
@@ -1002,16 +1017,16 @@ mod tests {
 
     #[test]
     fn attested_key_signatures() -> Result<()> {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::attested_key_signatures(&mut db, &log_path)?;
+        let (_tmp_dir, mut db) = open_db();
+        test::attested_key_signatures(&mut db)?;
         db.check_consistency()?;
         Ok(())
     }
 
     #[test]
     fn nonexportable_sigs() -> Result<()> {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::nonexportable_sigs(&mut db, &log_path)?;
+        let (_tmp_dir, mut db) = open_db();
+        test::nonexportable_sigs(&mut db)?;
         db.check_consistency()?;
         Ok(())
     }

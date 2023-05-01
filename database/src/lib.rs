@@ -174,6 +174,8 @@ pub trait Database: Sync + Send {
     fn write_to_quarantine(&self, fpr: &Fingerprint, content: &[u8]) -> Result<()>;
     fn write_log_append(&self, filename: &str, fpr_primary: &Fingerprint) -> Result<()>;
 
+    fn get_last_log_entry(&self) -> Result<Fingerprint>;
+
     fn check_consistency(&self) -> Result<()>;
 
     /// Queries the database using Fingerprint, KeyID, or
