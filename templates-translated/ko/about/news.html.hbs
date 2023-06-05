@@ -17,7 +17,7 @@
 <p>그간 우리가 준비한 것 몇 개를 알려드립니다:</p>
 <ul>
 <li>이 새 소식 페이지는 이제 <strong><a target="_blank" href="/atom.xml">ATOM 피드<img src="/assets/img/atom.svg" style="height: 0.8em;"></a></strong>로도 제공됩니다.</li>
-        <li>사용자의 개인 정보를 더 효과적으로 보호할 수 있는 <strong><a target="_blank" href="https://gitlab.com/hagrid-keyserver/hagrid/issues/131">새로운 키 갱신 방식</a></strong>을 고려 중입니다.</li>
+        <li>사용자의 개인 정보를 더 효과적으로 보호할 수 있는 <strong><a target="_blank" href="https://gitlab.com/keys.openpgp.org/hagrid/issues/131">새로운 키 갱신 방식</a></strong>을 고려 중입니다.</li>
         <li>
 <strong>현지화 작업</strong>에 전력 집중하고 있습니다! 곧 이 서비스를 몇몇 언어로 제공할 수 있길 기대합니다.</li>
     </ul>
@@ -43,7 +43,7 @@
 
     <p>운영 측면에서는 그닥 알려드릴 만한 게 없네요. 이런 게 바로 "무소식이 희소식"인 거죠! 개시부터 지금까지 우리는 서비스 불통이 거의 없었습니다. 키 올리기 절차에서 잠깐 문제를 일으킨 버그가 딱 하나 있었고요, 사용자 지원 문의율은 아주 바람직할 정도로 낮았습니다.</p>
 <p>네트워크 통행량은 대충 초당 요청 10개 선에서 머물고 있습니다. (낮시간엔 좀 더 많고, 주말엔 좀 더 적어요.) 지금까지 발송한 전자 메일은 대략 100,000통 정도 됩니다. 이 정도야 가뿐하죠.</p>
-<p>운영 측면에서 자잘한 개선은 꽤 있었습니다. 대충 꼽아보자면 <a href="http://dnsviz.net/d/keys.openpgp.org/dnssec/" target="_blank">DNSSEC</a> 적용, <a href="/about/api#rate-limiting" target="_blank">API 요청량 제한</a> 적용, <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP">콘텐츠 보안 정책</a> 헤더의 영구 적용, 그리고 Tor Onion 서비스에 <a href="https://blog.torproject.org/whats-new-tor-0298" target="_blank">단일-단계</a> 모드 적용 정도가 있겠네요. 개선 사항 전체 목록은 <a href="https://gitlab.com/hagrid-keyserver/hagrid/merge_requests?scope=all&amp;utf8=%E2%9C%93&amp;state=merged" target="_blank">여기서</a> 볼 수 있습니다.</p>
+<p>운영 측면에서 자잘한 개선은 꽤 있었습니다. 대충 꼽아보자면 <a href="http://dnsviz.net/d/keys.openpgp.org/dnssec/" target="_blank">DNSSEC</a> 적용, <a href="/about/api#rate-limiting" target="_blank">API 요청량 제한</a> 적용, <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP">콘텐츠 보안 정책</a> 헤더의 영구 적용, 그리고 Tor Onion 서비스에 <a href="https://blog.torproject.org/whats-new-tor-0298" target="_blank">단일-단계</a> 모드 적용 정도가 있겠네요. 개선 사항 전체 목록은 <a href="https://gitlab.com/keys.openpgp.org/hagrid/merge_requests?scope=all&amp;utf8=%E2%9C%93&amp;state=merged" target="_blank">여기서</a> 볼 수 있습니다.</p>
 <h4>MTA-STS를 통한 안전한 전자 메일 발송</h4>
 
     <p>이건 좀 중요하니까 따로 언급할게요. <a href="https://www.hardenize.com/blog/mta-sts">MTA-STS</a> 적용을 통해 전자 메일 발신의 보안성을 끌어올렸습니다.</p>
