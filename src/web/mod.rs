@@ -517,7 +517,7 @@ fn configure_prometheus(config: &Figment) -> Option<PrometheusMetrics> {
 fn configure_db_service(config: &Figment) -> Result<KeyDatabase> {
     let keys_internal_dir: PathBuf = config.extract_inner("keys_internal_dir")?;
 
-    let sqlite_db = KeyDatabase::new_memory(keys_internal_dir)?;
+    let sqlite_db = KeyDatabase::new_file(keys_internal_dir)?;
     Ok(sqlite_db)
 }
 

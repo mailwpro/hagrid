@@ -35,17 +35,19 @@ use openpgp_utils::POLICY;
 use EmailAddressStatus;
 use TpkStatus;
 
-fn check_mail_none(db: &impl Database, email: &Email) {
+use crate::DatabaseTransaction;
+
+fn check_mail_none<'a>(db: &impl Database<'a>, email: &Email) {
     assert!(db.by_email(email).is_none());
     assert!(db.by_email_wkd(email).is_none());
 }
 
-fn check_mail_some(db: &impl Database, email: &Email) {
+fn check_mail_some<'a>(db: &impl Database<'a>, email: &Email) {
     assert!(db.by_email(email).is_some());
     assert!(db.by_email_wkd(email).is_some());
 }
 
-pub fn test_uid_verification(db: &mut impl Database) {
+pub fn test_uid_verification<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let str_uid2 = "Test B <test_b@example.com>";
     let tpk = CertBuilder::new()
@@ -273,7 +275,7 @@ pub fn test_uid_verification(db: &mut impl Database) {
     }*/
 }
 
-pub fn test_regenerate(db: &mut impl Database) {
+pub fn test_regenerate<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let tpk = CertBuilder::new()
         .add_userid(str_uid1)
@@ -311,23 +313,35 @@ pub fn test_regenerate(db: &mut impl Database) {
 
     db.set_email_published(&fpr, &email1).unwrap();
 
-    db.unlink_email(&email1, &fpr).unwrap();
+    {
+        let lock = db.transaction().unwrap();
+        lock.unlink_email(&email1, &fpr).unwrap();
+        lock.commit().unwrap();
+    }
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
     db.check_consistency().expect("consistency must return Ok");
 
-    db.unlink_fpr(&fpr, &fpr).unwrap();
+    {
+        let lock = db.transaction().unwrap();
+        lock.unlink_fpr(&fpr, &fpr).unwrap();
+        lock.commit().unwrap();
+    }
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
     db.check_consistency().expect("consistency must return Ok");
 
-    db.unlink_fpr(&fpr_sign, &fpr).unwrap();
+    {
+        let lock = db.transaction().unwrap();
+        lock.unlink_fpr(&fpr_sign, &fpr).unwrap();
+        lock.commit().unwrap();
+    }
     assert!(db.check_consistency().is_err());
     db.regenerate_links(&fpr).unwrap();
     db.check_consistency().expect("consistency must return Ok");
 }
 
-pub fn test_reupload(db: &mut impl Database) {
+pub fn test_reupload<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let str_uid2 = "Test B <test_b@example.com>";
     let tpk = CertBuilder::new()
@@ -365,7 +379,7 @@ pub fn test_reupload(db: &mut impl Database) {
     assert!(db.by_email(&email2).is_none() ^ db.by_email(&email1).is_none());
 }
 
-pub fn test_uid_replacement(db: &mut impl Database) {
+pub fn test_uid_replacement<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let tpk1 = CertBuilder::new()
         .add_userid(str_uid1)
@@ -443,7 +457,7 @@ pub fn test_uid_replacement(db: &mut impl Database) {
     );
 }
 
-pub fn test_uid_deletion(db: &mut impl Database) {
+pub fn test_uid_deletion<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let str_uid2 = "Test B <test_b@example.com>";
     let tpk = CertBuilder::new()
@@ -507,7 +521,7 @@ pub fn test_uid_deletion(db: &mut impl Database) {
     assert_eq!(tpk.keys().subkeys().count(), n_subkeys);
 }
 
-pub fn test_subkey_lookup(db: &mut impl Database) {
+pub fn test_subkey_lookup<'a>(db: &'a mut impl Database<'a>) {
     let tpk = CertBuilder::new()
         .add_userid("Testy <test@example.com>")
         .add_signing_subkey()
@@ -547,7 +561,7 @@ pub fn test_subkey_lookup(db: &mut impl Database) {
     assert_eq!(raw1, raw2);
 }
 
-pub fn test_kid_lookup(db: &mut impl Database) {
+pub fn test_kid_lookup<'a>(db: &'a mut impl Database<'a>) {
     let tpk = CertBuilder::new()
         .add_userid("Testy <test@example.com>")
         .add_signing_subkey()
@@ -586,7 +600,7 @@ pub fn test_kid_lookup(db: &mut impl Database) {
     assert_eq!(raw1, raw2);
 }
 
-pub fn test_upload_revoked_tpk(db: &mut impl Database) {
+pub fn test_upload_revoked_tpk<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "Test A <test_a@example.com>";
     let str_uid2 = "Test B <test_b@example.com>";
     let (mut tpk, revocation) = CertBuilder::new()
@@ -631,7 +645,7 @@ pub fn test_upload_revoked_tpk(db: &mut impl Database) {
     check_mail_none(db, &email2);
 }
 
-pub fn test_uid_revocation(db: &mut impl Database) {
+pub fn test_uid_revocation<'a>(db: &'a mut impl Database<'a>) {
     use std::{thread, time};
 
     let str_uid1 = "Test A <test_a@example.com>";
@@ -802,7 +816,7 @@ pub fn test_uid_revocation_fake(db: &mut D) {
 }
 */
 
-pub fn test_unlink_uid(db: &mut impl Database) {
+pub fn test_unlink_uid<'a>(db: &'a mut impl Database<'a>) {
     let uid = "Test A <test_a@example.com>";
     let email = Email::from_str(uid).unwrap();
 
@@ -881,7 +895,7 @@ pub fn get_userids(armored: &str) -> Vec<UserID> {
 
 // If multiple keys have the same email address, make sure things work
 // as expected.
-pub fn test_same_email_1(db: &mut impl Database) {
+pub fn test_same_email_1<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "A <test@example.com>";
     let tpk1 = CertBuilder::new()
         .add_userid(str_uid1)
@@ -1001,7 +1015,7 @@ pub fn test_same_email_1(db: &mut impl Database) {
 // sure things still work. We do this twice (see above), to
 // make sure the order isn't relevant when revoking one user id
 // but leaving the other.
-pub fn test_same_email_2(db: &mut impl Database) {
+pub fn test_same_email_2<'a>(db: &'a mut impl Database<'a>) {
     use std::{thread, time};
 
     let str_uid1 = "A <test@example.com>";
@@ -1090,7 +1104,7 @@ pub fn test_same_email_2(db: &mut impl Database) {
 // sure things still work. We do this twice (see above), to
 // make sure the order isn't relevant when revoking one user id
 // but leaving the other.
-pub fn test_same_email_3(db: &mut impl Database) {
+pub fn test_same_email_3<'a>(db: &'a mut impl Database<'a>) {
     use std::{thread, time};
 
     let str_uid1 = "A <test@example.com>";
@@ -1184,7 +1198,7 @@ pub fn test_same_email_3(db: &mut impl Database) {
 
 // If a key has a verified email address, make sure newly uploaded user
 // ids with the same email are published as well.
-pub fn test_same_email_4(db: &mut impl Database) {
+pub fn test_same_email_4<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "A <test@example.com>";
     let str_uid2 = "B <test@example.com>";
     let tpk = CertBuilder::new()
@@ -1229,7 +1243,7 @@ pub fn test_same_email_4(db: &mut impl Database) {
     );
 }
 
-pub fn test_bad_uids(db: &mut impl Database) {
+pub fn test_bad_uids<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "foo@bar.example <foo@bar.example>";
     let str_uid2 = "A <test@example.com>";
     let str_uid3 = "lalalalaaaaa";
@@ -1291,7 +1305,7 @@ fn cert_without_signature_at(cert: Cert, mut index: i32) -> Cert {
     Cert::from_packets(packets).unwrap()
 }
 
-pub fn test_unsigned_uids(db: &mut impl Database) {
+pub fn test_unsigned_uids<'a>(db: &'a mut impl Database<'a>) {
     let str_uid1 = "test1@example.com";
     let str_uid2 = "test2@example.com";
     let tpk = CertBuilder::new()
@@ -1317,7 +1331,7 @@ pub fn test_unsigned_uids(db: &mut impl Database) {
     );
 }
 
-pub fn test_no_selfsig(db: &mut impl Database) {
+pub fn test_no_selfsig<'a>(db: &'a mut impl Database<'a>) {
     let (mut tpk, revocation) = CertBuilder::new().generate().unwrap();
     let fpr = Fingerprint::try_from(tpk.fingerprint()).unwrap();
 
@@ -1339,7 +1353,7 @@ pub fn test_no_selfsig(db: &mut impl Database) {
 }
 
 /// Makes sure that attested key signatures are correctly handled.
-pub fn attested_key_signatures(db: &mut impl Database) -> Result<()> {
+pub fn attested_key_signatures<'a>(db: &'a mut impl Database<'a>) -> Result<()> {
     use openpgp::types::*;
     use std::time::{Duration, SystemTime};
     let t0 = SystemTime::now() - Duration::new(5 * 60, 0);
@@ -1495,7 +1509,7 @@ pub fn attested_key_signatures(db: &mut impl Database) -> Result<()> {
     Ok(())
 }
 
-fn check_log_entry(db: &mut impl Database, fpr: &Fingerprint) {
+fn check_log_entry<'a>(db: &impl Database<'a>, fpr: &Fingerprint) {
     let last_entry = db.get_last_log_entry().expect("must have log entry");
     assert_eq!(last_entry.to_string(), fpr.to_string());
 }
@@ -1511,7 +1525,7 @@ fn cert_without_uid(cert: Cert, removed_uid: &UserID) -> Cert {
     Cert::from_packets(packets).unwrap()
 }
 
-pub fn nonexportable_sigs(db: &mut impl Database) -> Result<()> {
+pub fn nonexportable_sigs<'a>(db: &'a mut impl Database<'a>) -> Result<()> {
     let str_uid1 = "Test A <test_a@example.org>";
     let str_uid2 = "Test B <test_b@example.org>";
 

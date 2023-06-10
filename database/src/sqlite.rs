@@ -1,3 +1,5 @@
+use self_cell::self_cell;
+
 use std::convert::TryFrom;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
@@ -14,9 +16,10 @@ use openpgp::Cert;
 
 use r2d2_sqlite::rusqlite::params;
 use r2d2_sqlite::rusqlite::OptionalExtension;
+use r2d2_sqlite::rusqlite::Transaction;
 use r2d2_sqlite::SqliteConnectionManager;
 
-use crate::wkd;
+use crate::{wkd, DatabaseTransaction};
 
 pub const POLICY: StandardPolicy = StandardPolicy::new();
 
@@ -30,14 +33,6 @@ impl Sqlite {
 
         let db_file = base_dir.join("keys.sqlite");
         let manager = SqliteConnectionManager::file(db_file);
-
-        Self::new_internal(base_dir, manager)
-    }
-
-    pub fn new_memory(base_dir: impl Into<PathBuf>) -> Result<Self> {
-        let base_dir: PathBuf = base_dir.into();
-
-        let manager = SqliteConnectionManager::memory();
 
         Self::new_internal(base_dir, manager)
     }
@@ -61,7 +56,6 @@ impl Sqlite {
         }
 
         Ok(r2d2::Pool::builder()
-            .max_size(2)
             .connection_customizer(Box::new(LogConnectionCustomizer {}))
             .build(manager)?)
     }
@@ -110,32 +104,47 @@ impl Sqlite {
     }
 }
 
-impl Database for Sqlite {
-    type MutexGuard = String;
+self_cell! {
+    pub struct SqliteTransaction {
+        owner: r2d2::PooledConnection<SqliteConnectionManager>,
+        #[covariant]
+        dependent: Transaction,
+    }
+}
+
+impl SqliteTransaction {
+    fn start(pool: &r2d2::Pool<SqliteConnectionManager>) -> Result<Self> {
+        let conn = pool.get()?;
+        Ok(Self::new(conn, |c| {
+            Transaction::new_unchecked(c, rusqlite::TransactionBehavior::Deferred).unwrap()
+        }))
+    }
+
+    fn tx(&self) -> &Transaction {
+        self.borrow_dependent()
+    }
+}
+
+impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
     type TempCert = Vec<u8>;
 
-    fn lock(&self) -> Result<Self::MutexGuard> {
-        // no need to lock the db. we *should* introduce transactions, though!
-        Ok("locked :)".to_owned())
+    fn commit(self) -> Result<()> {
+        // we can't use tx().commit(), but we can cheat :)
+        self.tx().execute_batch("COMMIT")?;
+        Ok(())
     }
 
     fn write_to_temp(&self, content: &[u8]) -> Result<Self::TempCert> {
         Ok(content.to_vec())
     }
 
-    fn write_log_append(&self, _filename: &str, _fpr_primary: &Fingerprint) -> Result<()> {
-        // this is done implicitly via created_at in sqlite, no need to do anything here
-        Ok(())
-    }
-
     fn move_tmp_to_full(&self, file: Self::TempCert, fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as u64;
         let file = String::from_utf8(file)?;
-        conn.execute(
+        self.tx().execute(
             "
             INSERT INTO certs (primary_fingerprint, full, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?3)
@@ -147,13 +156,12 @@ impl Database for Sqlite {
     }
 
     fn move_tmp_to_published(&self, file: Self::TempCert, fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as u64;
         let file = String::from_utf8(file)?;
-        conn.execute(
+        self.tx().execute(
             "
             UPDATE certs
             SET published = ?2, updated_at = ?3
@@ -169,12 +177,11 @@ impl Database for Sqlite {
         file: Option<Self::TempCert>,
         fpr: &Fingerprint,
     ) -> Result<()> {
-        let conn = self.pool.get()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as u64;
-        conn.execute(
+        self.tx().execute(
             "
             UPDATE certs
             SET published_not_armored = ?2, updated_at = ?3
@@ -189,62 +196,13 @@ impl Database for Sqlite {
         Ok(())
     }
 
-    fn check_link_fpr(
-        &self,
-        fpr: &Fingerprint,
-        _fpr_target: &Fingerprint,
-    ) -> Result<Option<Fingerprint>> {
-        // a desync here cannot happen structurally, so always return true here
-        Ok(Some(fpr.clone()))
-    }
-
-    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
-        use super::Query::*;
-
-        let conn = self.pool.get().unwrap();
-        let mut stmt = conn
-            .prepare(
-                "
-            SELECT primary_fingerprint
-            FROM cert_identifiers
-            WHERE ?1 = ?2
-            ",
-            )
-            .unwrap();
-        let fp: Option<String> = match term {
-            ByFingerprint(ref fp) => stmt
-                .query_row(["fingerprint", &fp.to_string()], |row| row.get(0))
-                .optional()
-                .unwrap(),
-            ByKeyID(ref keyid) => stmt
-                .query_row(["keyid", &keyid.to_string()], |row| row.get(0))
-                .optional()
-                .unwrap(),
-            ByEmail(ref email) => conn
-                .query_row(
-                    "
-                    SELECT primary_fingerprint
-                    FROM emails
-                    WHERE email = ?1
-                    ",
-                    [email.to_string()],
-                    |row| row.get(0),
-                )
-                .optional()
-                .unwrap(),
-            _ => None,
-        };
-        fp.and_then(|fp| Fingerprint::from_str(&fp).ok())
-    }
-
     fn link_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as u64;
         let (domain, wkd_hash) = wkd::encode_wkd(email.as_str()).expect("email must be vaild");
-        conn.execute(
+        self.tx().execute(
             "
             INSERT INTO emails (email, wkd_hash, domain, primary_fingerprint, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -256,26 +214,25 @@ impl Database for Sqlite {
     }
 
     fn unlink_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
-        conn.execute(
-            "
+        self.tx()
+            .execute(
+                "
             DELETE FROM emails
             WHERE email = ?1
                 AND primary_fingerprint = ?2
             ",
-            params![email.to_string(), fpr.to_string(),],
-        )
-        .unwrap();
+                params![email.to_string(), fpr.to_string(),],
+            )
+            .unwrap();
         Ok(())
     }
 
     fn link_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_millis() as u64;
-        conn.execute(
+        self.tx().execute(
             "
             INSERT INTO cert_identifiers (fingerprint, keyid, primary_fingerprint, created_at)
             VALUES (?1, ?2, ?3, ?4)
@@ -292,8 +249,7 @@ impl Database for Sqlite {
     }
 
     fn unlink_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
-        let conn = self.pool.get()?;
-        conn.execute(
+        self.tx().execute(
             "
             DELETE FROM cert_identifiers
             WHERE primary_fingerprint = ?1
@@ -307,6 +263,60 @@ impl Database for Sqlite {
             ],
         )?;
         Ok(())
+    }
+}
+
+impl<'a> Database<'a> for Sqlite {
+    type Transaction = SqliteTransaction;
+
+    fn transaction(&'a self) -> Result<Self::Transaction> {
+        SqliteTransaction::start(&self.pool)
+    }
+
+    fn write_log_append(&self, _filename: &str, _fpr_primary: &Fingerprint) -> Result<()> {
+        // this is done implicitly via created_at in sqlite, no need to do anything here
+        Ok(())
+    }
+
+    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
+        use super::Query::*;
+
+        let conn = self.pool.get().unwrap();
+        let stmt = match term {
+            ByFingerprint(ref fp) => conn
+                .prepare(
+                    "
+                SELECT primary_fingerprint
+                FROM cert_identifiers
+                WHERE fingerprint = ?1
+                ",
+                )
+                .unwrap()
+                .query_row([&fp.to_string()], |row| row.get(0)),
+            ByKeyID(ref keyid) => conn
+                .prepare(
+                    "
+                SELECT primary_fingerprint
+                FROM cert_identifiers
+                WHERE keyid = ?1
+                ",
+                )
+                .unwrap()
+                .query_row([&keyid.to_string()], |row| row.get(0)),
+            ByEmail(ref email) => conn
+                .prepare(
+                    "
+                SELECT primary_fingerprint
+                FROM emails
+                WHERE email = ?1
+                    ",
+                )
+                .unwrap()
+                .query_row([&email.to_string()], |row| row.get(0)),
+            _ => return None,
+        };
+        let fp: Option<String> = stmt.optional().unwrap();
+        fp.and_then(|fp| Fingerprint::from_str(&fp).ok())
     }
 
     // Lookup straight from certs table, no link resolution
@@ -352,7 +362,7 @@ impl Database for Sqlite {
             .query_row(
                 "
             SELECT primary_fingerprint
-            FROM cert_identifiers
+                        FROM cert_identifiers
             WHERE fingerprint = ?1
             ",
                 [fpr.to_string()],
@@ -465,6 +475,15 @@ impl Database for Sqlite {
             .optional()
             .unwrap();
         binary_cert
+    }
+
+    fn check_link_fpr(
+        &self,
+        fpr: &Fingerprint,
+        _fpr_target: &Fingerprint,
+    ) -> Result<Option<Fingerprint>> {
+        // a desync here cannot happen structurally, so always return true here
+        Ok(Some(fpr.clone()))
     }
 
     /// Checks the database for consistency.
@@ -618,8 +637,10 @@ mod tests {
         let (_tmp_dir, db) = open_db();
         let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
 
-        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
-        db.link_fpr(&fpr1, &fpr1)?;
+        let lock = db.transaction().unwrap();
+        lock.move_tmp_to_full(lock.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        lock.link_fpr(&fpr1, &fpr1)?;
+        lock.commit().unwrap();
 
         assert_eq!(db.by_fpr_full(&fpr1).expect("must find key"), DATA_1);
         Ok(())
@@ -630,9 +651,11 @@ mod tests {
         let (_tmp_dir, db) = open_db();
         let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
 
-        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
-        db.move_tmp_to_published(db.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
-        db.link_fpr(&fpr1, &fpr1)?;
+        let lock = db.transaction().unwrap();
+        lock.move_tmp_to_full(lock.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        lock.move_tmp_to_published(lock.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
+        lock.link_fpr(&fpr1, &fpr1)?;
+        lock.commit().unwrap();
 
         assert_eq!(db.by_kid(&fpr1.into()).expect("must find key"), DATA_2);
         Ok(())
@@ -643,8 +666,10 @@ mod tests {
         let (_tmp_dir, db) = open_db();
         let fpr1 = Fingerprint::from_str(FINGERPRINT_1)?;
 
-        db.move_tmp_to_full(db.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
-        db.move_tmp_to_published(db.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
+        let lock = db.transaction().unwrap();
+        lock.move_tmp_to_full(lock.write_to_temp(DATA_1.as_bytes())?, &fpr1)?;
+        lock.move_tmp_to_published(lock.write_to_temp(DATA_2.as_bytes())?, &fpr1)?;
+        lock.commit().unwrap();
 
         assert_eq!(db.by_primary_fpr(&fpr1).expect("must find key"), DATA_2);
         Ok(())
