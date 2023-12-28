@@ -29,9 +29,13 @@ impl SealedState {
         }
     }
 
-    pub fn unseal(&self, mut data: Vec<u8>) -> Result<String, &'static str> {
-        let (nonce, sealed) = data.split_at_mut(NONCE_LEN);
-        let unsealed = open_in_place(&self.opening_key, nonce, &[], 0, sealed)
+    pub fn unseal(&self, data: &[u8]) -> Result<String, &'static str> {
+        if data.len() < NONCE_LEN {
+            return Err("invalid sealed value: too short");
+        }
+        let (nonce, sealed) = data.split_at(NONCE_LEN);
+        let mut sealed_copy = sealed.to_vec();
+        let unsealed = open_in_place(&self.opening_key, nonce, &[], 0, &mut sealed_copy)
             .map_err(|_| "invalid key/nonce/value: bad seal")?;
 
         ::std::str::from_utf8(unsealed)
@@ -67,8 +71,19 @@ mod tests {
         let sv = SealedState::new("swag");
 
         let sealed = sv.seal("test");
-        let unsealed = sv.unseal(sealed).unwrap();
+        let unsealed = sv.unseal(sealed.as_slice()).unwrap();
 
         assert_eq!("test", unsealed);
+    }
+
+    #[test]
+    fn too_short() {
+        let sv = SealedState::new("swag");
+
+        let sealed = sv.seal("test");
+        let sealed_short = &sealed[0..8];
+        let unsealed_error = sv.unseal(sealed_short);
+
+        assert_eq!(Err("invalid sealed value: too short"), unsealed_error);
     }
 }

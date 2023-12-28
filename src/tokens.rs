@@ -43,11 +43,11 @@ impl Service {
         T: StatelessSerializable,
     {
         let token_sealed = base64::decode_config(&token_encoded, base64::URL_SAFE_NO_PAD)
-            .map_err(|_| anyhow!("invalid b64"))?;
+            .map_err(|_| anyhow!("Invalid base64. Did you follow a correct link?"))?;
         let token_str = self
             .sealed_state
-            .unseal(token_sealed)
-            .map_err(|_| anyhow!("failed to validate"))?;
+            .unseal(token_sealed.as_slice())
+            .map_err(|_| anyhow!("Failed to validate. Did you follow a correct link?"))?;
         let token: Token =
             serde_json::from_str(&token_str).map_err(|_| anyhow!("failed to deserialize"))?;
 
