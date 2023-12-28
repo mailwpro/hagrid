@@ -116,7 +116,7 @@ impl Service {
                 context = "Subject for verification email, {0} = userid, {1} = keyserver domain",
                 "Verify {0} for your key on {1}";
                 userid,
-                &self.domain,
+                self.domain.as_str(),
             ),
             "verify",
             i18n.lang,
@@ -148,7 +148,7 @@ impl Service {
                 i18n.catalog,
                 context = "Subject for manage email, {} = keyserver domain",
                 "Manage your key on {}";
-                &self.domain
+                self.domain.as_str()
             ),
             "manage",
             i18n.lang,

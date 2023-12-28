@@ -132,7 +132,7 @@ pub fn vks_manage_post(
         Err(_) => {
             return MyResponse::not_found(
                 Some("manage/manage"),
-                Some(i18n!(i18n.catalog, "Malformed address: {}"; &request.search_term)),
+                Some(i18n!(i18n.catalog, "Malformed address: {}"; request.search_term.as_str())),
                 i18n,
                 origin,
             )
@@ -144,7 +144,7 @@ pub fn vks_manage_post(
         Ok(None) => {
             return MyResponse::not_found(
                 Some("manage/manage"),
-                Some(i18n!(i18n.catalog, "No key for address: {}"; &request.search_term)),
+                Some(i18n!(i18n.catalog, "No key for address: {}"; request.search_term.as_str())),
                 i18n,
                 origin,
             )
