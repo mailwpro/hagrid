@@ -21,7 +21,7 @@ pkgs.mkShell {
 
     clang
     nettle
-    pkgconfig
+    pkg-config
 
     gettext
     transifex-client
