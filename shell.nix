@@ -20,7 +20,6 @@ pkgs.mkShell {
     openssl
 
     clang
-    nettle
     pkg-config
 
     gettext

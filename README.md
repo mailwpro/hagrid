@@ -37,7 +37,7 @@ Additionally, some external dependencies are required.
 Get them (on Debian or Ubuntu) with
 
 ```bash
-sudo apt install gnutls-bin nettle-dev gcc llvm-dev libclang-dev build-essential pkg-config gettext
+sudo apt install gnutls-bin libssl-dev gcc llvm-dev libclang-dev build-essential pkg-config gettext
 ```
 
 After Rust and the other dependencies are installed, copy the config file, then simply compile and run:
