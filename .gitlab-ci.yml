@@ -3,7 +3,7 @@ build, test and lint:
     interruptible: true
     script:
         - apt update -qy
-        - apt install -qy build-essential pkg-config clang libclang-dev nettle-dev gettext zsh
+        - apt install -qy build-essential pkg-config clang libclang-dev openssl-dev gettext zsh
         - rustup component add clippy
         - rustup component add rustfmt
         - ./make-translated-templates
