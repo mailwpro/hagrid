@@ -16,6 +16,7 @@ use openpgp::Cert;
 
 use r2d2_sqlite::rusqlite::params;
 use r2d2_sqlite::rusqlite::OptionalExtension;
+use r2d2_sqlite::rusqlite::ToSql;
 use r2d2_sqlite::rusqlite::Transaction;
 use r2d2_sqlite::SqliteConnectionManager;
 
@@ -125,6 +126,18 @@ impl SqliteTransaction {
     }
 }
 
+fn query_simple<T: rusqlite::types::FromSql>(
+    conn: &r2d2::PooledConnection<SqliteConnectionManager>,
+    query: &str,
+    params: &[&dyn ToSql],
+) -> Option<T> {
+    conn.prepare_cached(query)
+        .expect("query must be valid")
+        .query_row(params, |row| row.get(0))
+        .optional()
+        .expect("query exection must not fail")
+}
+
 impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
     type TempCert = Vec<u8>;
 
@@ -150,7 +163,7 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
             VALUES (?1, ?2, ?3, ?3)
             ON CONFLICT(primary_fingerprint) DO UPDATE SET full=excluded.full, updated_at = excluded.updated_at
             ",
-            params![fpr.to_string(), file, now],
+            params![fpr, file, now],
         )?;
         Ok(())
     }
@@ -162,12 +175,8 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
             .as_millis() as u64;
         let file = String::from_utf8(file)?;
         self.tx().execute(
-            "
-            UPDATE certs
-            SET published = ?2, updated_at = ?3
-            WHERE primary_fingerprint = ?1
-            ",
-            params![fpr.to_string(), file, now],
+            "UPDATE certs SET published = ?2, updated_at = ?3 WHERE primary_fingerprint = ?1",
+            params![fpr, file, now],
         )?;
         Ok(())
     }
@@ -182,12 +191,8 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
             .expect("Time went backwards")
             .as_millis() as u64;
         self.tx().execute(
-            "
-            UPDATE certs
-            SET published_not_armored = ?2, updated_at = ?3
-            WHERE primary_fingerprint = ?1
-            ",
-            params![fpr.to_string(), file, now],
+            "UPDATE certs SET published_not_armored = ?2, updated_at = ?3 WHERE primary_fingerprint = ?1",
+            params![fpr, file, now],
         )?;
         Ok(())
     }
@@ -208,7 +213,7 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
             VALUES (?1, ?2, ?3, ?4, ?5)
             ON CONFLICT(email) DO UPDATE SET primary_fingerprint = excluded.primary_fingerprint
             ",
-            params![email.to_string(), domain, wkd_hash, fpr.to_string(), now],
+            params![email, domain, wkd_hash, fpr, now],
         )?;
         Ok(())
     }
@@ -216,18 +221,14 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
     fn unlink_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
         self.tx()
             .execute(
-                "
-            DELETE FROM emails
-            WHERE email = ?1
-                AND primary_fingerprint = ?2
-            ",
-                params![email.to_string(), fpr.to_string(),],
+                "DELETE FROM emails WHERE email = ?1 AND primary_fingerprint = ?2",
+                params![email, fpr],
             )
             .unwrap();
         Ok(())
     }
 
-    fn link_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
+    fn link_fpr(&self, from_fpr: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -239,28 +240,19 @@ impl<'a> DatabaseTransaction<'a> for SqliteTransaction {
             ON CONFLICT(fingerprint) DO UPDATE SET primary_fingerprint = excluded.primary_fingerprint;
             ",
             params![
-                from.to_string(),
-                KeyID::try_from(from)?.to_string(),
-                primary_fpr.to_string(),
+                from_fpr,
+                KeyID::from(from_fpr),
+                primary_fpr,
                 now,
             ],
         )?;
         Ok(())
     }
 
-    fn unlink_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
+    fn unlink_fpr(&self, from_fpr: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
         self.tx().execute(
-            "
-            DELETE FROM cert_identifiers
-            WHERE primary_fingerprint = ?1
-                AND fingerprint = ?2
-                AND keyid = ?3
-            ",
-            params![
-                primary_fpr.to_string(),
-                from.to_string(),
-                KeyID::try_from(from)?.to_string()
-            ],
+            "DELETE FROM cert_identifiers WHERE primary_fingerprint = ?1 AND fingerprint = ?2 AND keyid = ?3",
+            params![primary_fpr, from_fpr, KeyID::from(from_fpr)],
         )?;
         Ok(())
     }
@@ -282,199 +274,125 @@ impl<'a> Database<'a> for Sqlite {
         use super::Query::*;
 
         let conn = self.pool.get().unwrap();
-        let stmt = match term {
-            ByFingerprint(ref fp) => conn
-                .prepare(
-                    "
-                SELECT primary_fingerprint
-                FROM cert_identifiers
-                WHERE fingerprint = ?1
-                ",
-                )
-                .unwrap()
-                .query_row([&fp.to_string()], |row| row.get(0)),
-            ByKeyID(ref keyid) => conn
-                .prepare(
-                    "
-                SELECT primary_fingerprint
-                FROM cert_identifiers
-                WHERE keyid = ?1
-                ",
-                )
-                .unwrap()
-                .query_row([&keyid.to_string()], |row| row.get(0)),
-            ByEmail(ref email) => conn
-                .prepare(
-                    "
-                SELECT primary_fingerprint
-                FROM emails
-                WHERE email = ?1
-                    ",
-                )
-                .unwrap()
-                .query_row([&email.to_string()], |row| row.get(0)),
+        match term {
+            ByFingerprint(ref fp) => query_simple(
+                &conn,
+                "SELECT primary_fingerprint FROM cert_identifiers WHERE fingerprint = ?1",
+                params![fp],
+            ),
+            ByKeyID(ref keyid) => query_simple(
+                &conn,
+                "SELECT primary_fingerprint FROM cert_identifiers WHERE keyid = ?1",
+                params![keyid],
+            ),
+            ByEmail(ref email) => query_simple(
+                &conn,
+                "SELECT primary_fingerprint FROM emails WHERE email = ?1",
+                params![email],
+            ),
             _ => return None,
-        };
-        let fp: Option<String> = stmt.optional().unwrap();
-        fp.and_then(|fp| Fingerprint::from_str(&fp).ok())
+        }
     }
 
     // Lookup straight from certs table, no link resolution
-    fn by_fpr_full(&self, fpr: &Fingerprint) -> Option<String> {
+    fn by_fpr_full(&self, primary_fpr: &Fingerprint) -> Option<String> {
         let conn = self.pool.get().unwrap();
-        let armored_cert: Option<String> = conn
-            .query_row(
-                "
-            SELECT full
-            FROM certs
-            WHERE primary_fingerprint = ?1
-            ",
-                [fpr.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .unwrap();
-        armored_cert
+        query_simple(
+            &conn,
+            "SELECT full FROM certs WHERE primary_fingerprint = ?1",
+            params![primary_fpr],
+        )
     }
 
     // XXX: rename! to by_primary_fpr_published
     // Lookup the published cert straight from certs table, no link resolution
-    fn by_primary_fpr(&self, fpr: &Fingerprint) -> Option<String> {
+    fn by_primary_fpr(&self, primary_fpr: &Fingerprint) -> Option<String> {
         let conn = self.pool.get().unwrap();
-        let armored_cert: Option<Option<String>> = conn
-            .query_row(
-                "
-            SELECT published
-            FROM certs
-            WHERE primary_fingerprint = ?1
-            ",
-                [fpr.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .unwrap();
-        armored_cert.flatten()
+        query_simple(
+            &conn,
+            "SELECT published FROM certs WHERE primary_fingerprint = ?1",
+            params![primary_fpr],
+        )
     }
 
     fn by_fpr(&self, fpr: &Fingerprint) -> Option<String> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
-            .query_row(
-                "
-            SELECT primary_fingerprint
-                        FROM cert_identifiers
-            WHERE fingerprint = ?1
-            ",
-                [fpr.to_string()],
-                |row| row.get(0),
+        query_simple::<Fingerprint>(
+            &conn,
+            "SELECT primary_fingerprint FROM cert_identifiers WHERE fingerprint = ?1",
+            params![fpr],
+        )
+        .and_then(|primary_fpr| {
+            query_simple(
+                &conn,
+                "SELECT published FROM certs WHERE primary_fingerprint = ?1",
+                params![&primary_fpr],
             )
-            .optional()
-            .unwrap();
-        if let Some(primary_fingerprint) = primary_fingerprint {
-            self.by_primary_fpr(&Fingerprint::from_str(&primary_fingerprint).unwrap())
-        } else {
-            None
-        }
+        })
     }
 
     fn by_email(&self, email: &Email) -> Option<String> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
-            .query_row(
-                "
-            SELECT primary_fingerprint
-            FROM emails
-            WHERE email = ?1
-            ",
-                [email.to_string()],
-                |row| row.get(0),
+        query_simple::<Fingerprint>(
+            &conn,
+            "SELECT primary_fingerprint FROM emails WHERE email = ?1",
+            params![email],
+        )
+        .and_then(|primary_fpr| {
+            query_simple(
+                &conn,
+                "SELECT published FROM certs WHERE primary_fingerprint = ?1",
+                params![&primary_fpr],
             )
-            .optional()
-            .unwrap();
-        if let Some(primary_fingerprint) = primary_fingerprint {
-            self.by_primary_fpr(&Fingerprint::from_str(&primary_fingerprint).unwrap())
-        } else {
-            None
-        }
+        })
     }
 
     fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
-            .query_row(
-                "
-            SELECT primary_fingerprint
-            FROM emails
-            WHERE email = ?1
-            ",
-                [email.to_string()],
-                |row| row.get(0),
+        query_simple::<Fingerprint>(
+            &conn,
+            "SELECT primary_fingerprint FROM emails WHERE email = ?1",
+            params![email],
+        )
+        .and_then(|primary_fpr| {
+            query_simple(
+                &conn,
+                "SELECT published_not_armored FROM certs WHERE primary_fingerprint = ?1",
+                params![&primary_fpr],
             )
-            .optional()
-            .unwrap();
-        let binary_cert: Option<Vec<u8>> = conn
-            .query_row(
-                "
-            SELECT published_not_armored
-            FROM certs
-            WHERE primary_fingerprint = ?1
-            ",
-                [primary_fingerprint],
-                |row| row.get(0),
-            )
-            .optional()
-            .unwrap();
-        binary_cert
+        })
     }
 
     fn by_kid(&self, kid: &KeyID) -> Option<String> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
-            .query_row(
-                "
-            SELECT primary_fingerprint
-            FROM cert_identifiers
-            WHERE keyid = ?1
-            ",
-                [kid.to_string()],
-                |row| row.get(0),
+        query_simple::<Fingerprint>(
+            &conn,
+            "SELECT primary_fingerprint FROM cert_identifiers WHERE keyid = ?1",
+            params![kid],
+        )
+        .and_then(|primary_fpr| {
+            query_simple(
+                &conn,
+                "SELECT published FROM certs WHERE primary_fingerprint = ?1",
+                params![primary_fpr],
             )
-            .optional()
-            .unwrap();
-        if let Some(primary_fingerprint) = primary_fingerprint {
-            self.by_primary_fpr(&Fingerprint::from_str(&primary_fingerprint).unwrap())
-        } else {
-            None
-        }
+        })
     }
 
     fn by_domain_and_hash_wkd(&self, domain: &str, wkd_hash: &str) -> Option<Vec<u8>> {
         let conn = self.pool.get().unwrap();
-        let primary_fingerprint: Option<String> = conn
-            .query_row(
-                "
-            SELECT primary_fingerprint
-            FROM emails
-            WHERE domain = ?1, wkd_hash = ?2
-            ",
-                [domain, wkd_hash],
-                |row| row.get(0),
+        query_simple::<Fingerprint>(
+            &conn,
+            "SELECT primary_fingerprint FROM emails WHERE domain = ?1 AND wkd_hash = ?2",
+            params![domain, wkd_hash],
+        )
+        .and_then(|primary_fpr| {
+            query_simple(
+                &conn,
+                "SELECT published_not_armored FROM certs WHERE primary_fingerprint = ?1",
+                params![primary_fpr],
             )
-            .optional()
-            .unwrap();
-        let binary_cert: Option<Vec<u8>> = conn
-            .query_row(
-                "
-            SELECT published_not_armored
-            FROM certs
-            WHERE primary_fingerprint = ?1
-            ",
-                [primary_fingerprint],
-                |row| row.get(0),
-            )
-            .optional()
-            .unwrap();
-        binary_cert
+        })
     }
 
     fn check_link_fpr(
@@ -508,7 +426,7 @@ impl<'a> Database<'a> for Sqlite {
                 .collect();
             let mut db_emails: Vec<Email> = conn
                 .prepare("SELECT email FROM emails WHERE primary_fingerprint = ?1")?
-                .query_map([primary_fpr.to_string()], |row| row.get::<_, String>(0))
+                .query_map([&primary_fpr], |row| row.get::<_, String>(0))
                 .unwrap()
                 .map(|email| Email::from_str(&email.unwrap()))
                 .flatten()
@@ -519,7 +437,7 @@ impl<'a> Database<'a> for Sqlite {
             if cert_emails != db_emails {
                 return Err(format_err!(
                     "{:?} does not have correct emails indexed, cert ${:?} db {:?}",
-                    primary_fpr,
+                    &primary_fpr,
                     cert_emails,
                     db_emails,
                 ));
@@ -537,9 +455,7 @@ impl<'a> Database<'a> for Sqlite {
                 .collect();
             let mut db_fprs: Vec<Fingerprint> = conn
                 .prepare("SELECT fingerprint FROM cert_identifiers WHERE primary_fingerprint = ?1")?
-                .query_map([primary_fpr.to_string()], |row| {
-                    row.get::<_, Fingerprint>(0)
-                })
+                .query_map([&primary_fpr], |row| row.get::<_, Fingerprint>(0))
                 .unwrap()
                 .flatten()
                 .collect();
@@ -548,7 +464,7 @@ impl<'a> Database<'a> for Sqlite {
             if cert_fprs != db_fprs {
                 return Err(format_err!(
                     "{:?} does not have correct fingerprints indexed, cert ${:?} db {:?}",
-                    primary_fpr,
+                    &primary_fpr,
                     cert_fprs,
                     db_fprs,
                 ));
