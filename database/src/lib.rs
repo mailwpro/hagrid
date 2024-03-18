@@ -99,7 +99,7 @@ pub enum ImportResult {
 }
 
 impl ImportResult {
-    pub fn into_tpk_status(self) -> TpkStatus {
+    pub fn as_tpk_status(&self) -> &TpkStatus {
         match self {
             ImportResult::New(status) => status,
             ImportResult::Updated(status) => status,

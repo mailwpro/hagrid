@@ -1,4 +1,5 @@
 use std::cmp::min;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ use openpgp::parse::{PacketParser, PacketParserResult, Parse};
 use openpgp::Packet;
 
 extern crate hagrid_database as database;
-use database::{Database, ImportResult, KeyDatabase};
+use database::{Database, EmailAddressStatus, ImportResult, KeyDatabase};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -152,15 +153,32 @@ fn import_from_file(db: &KeyDatabase, input: &Path, multi_progress: &MultiProgre
 
     read_file_to_tpks(input_reader, &mut |acc| {
         let primary_key = acc[0].clone();
+        let key_fpr = match primary_key {
+            Packet::PublicKey(key) => key.fingerprint(),
+            Packet::SecretKey(key) => key.fingerprint(),
+            _ => return (),
+        };
         let result = import_key(db, acc);
+        if let Ok(ref result) = result {
+            let tpk_status = result.as_tpk_status();
+            if !tpk_status.is_revoked {
+                for (email, status) in &tpk_status.email_status {
+                    if status == &EmailAddressStatus::NotPublished {
+                        db.set_email_published(&key_fpr.clone().try_into().unwrap(), &email).unwrap();
+                    }
+                }
+            }
+        }
         if let Err(ref e) = result {
-            let key_fpr = match primary_key {
-                Packet::PublicKey(key) => key.fingerprint().to_hex(),
-                Packet::SecretKey(key) => key.fingerprint().to_hex(),
-                _ => "Unknown".to_owned(),
-            };
-            let error = format!("{}:{:05}:{}: {}", filename, stats.count_total, key_fpr, e);
+            let error = format!(
+                "{}:{:05}:{}: {}",
+                filename,
+                stats.count_total,
+                key_fpr.to_hex(),
+                e
+            );
             progress_bar.println(error);
+            return ();
         }
         stats.update(result);
     })?;
@@ -198,46 +216,3 @@ fn read_file_to_tpks(
 fn import_key(db: &KeyDatabase, packets: Vec<Packet>) -> Result<ImportResult> {
     openpgp::Cert::from_packets(packets.into_iter()).and_then(|tpk| db.merge(tpk))
 }
-
-/*
-#[cfg(test)]
-mod import_tests {
-    use std::fs::File;
-    use tempfile::tempdir;
-    use openpgp::serialize::Serialize;
-    use super::*;
-
-    #[test]
-    fn import() {
-        let root = tempdir().unwrap();
-
-        let db = KeyDatabase::new_from_base(root.path().to_path_buf()).unwrap();
-
-        // Generate a key and import it.
-        let (tpk, _) = openpgp::tpk::TPKBuilder::autocrypt(
-            None, Some("foo@invalid.example.com".into()))
-            .generate().unwrap();
-        let import_me = root.path().join("import-me");
-        tpk.serialize(&mut File::create(&import_me).unwrap()).unwrap();
-
-        do_import(root.path().to_path_buf(), vec![import_me]).unwrap();
-
-        let check = |query: &str| {
-            let tpk_ = db.lookup(&query.parse().unwrap()).unwrap().unwrap();
-            assert_eq!(tpk.fingerprint(), tpk_.fingerprint());
-            assert_eq!(tpk.subkeys().map(|skb| skb.subkey().fingerprint())
-                       .collect::<Vec<_>>(),
-                       tpk_.subkeys().map(|skb| skb.subkey().fingerprint())
-                       .collect::<Vec<_>>());
-            assert_eq!(tpk_.userids().count(), 0);
-        };
-
-        check(&format!("{}", tpk.primary().fingerprint()));
-        check(&format!("{}", tpk.primary().fingerprint().to_keyid()));
-        check(&format!("{}", tpk.subkeys().nth(0).unwrap().subkey()
-                       .fingerprint()));
-        check(&format!("{}", tpk.subkeys().nth(0).unwrap().subkey()
-                       .fingerprint().to_keyid()));
-    }
-}
-*/
