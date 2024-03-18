@@ -1,4 +1,4 @@
-FROM rustlang/rust:nightly
+FROM rust:bullseye
 RUN apt update -qy
 RUN apt install -qy libclang-dev build-essential pkg-config clang libssl-dev gettext zsh
 
