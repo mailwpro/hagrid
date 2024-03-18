@@ -2701,6 +2701,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "tester"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.10.1",
+ "clap",
+ "fs2",
+ "hex",
+ "idna 0.1.5",
+ "indicatif",
+ "log 0.3.9",
+ "rand 0.6.5",
+ "sequoia-openpgp",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "time 0.1.45",
+ "url",
+]
+
+[[package]]
 name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

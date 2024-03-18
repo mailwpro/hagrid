@@ -1,0 +1,21 @@
+[package]
+name = "tester"
+version = "0.1.0"
+authors = ["Vincent Breitmoser <look@my.amazin.horse>"]
+
+[dependencies]
+anyhow = "1"
+sequoia-openpgp =  { version = "1", default-features = false, features = ["crypto-openssl"] }
+log = "0"
+rand = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "1"
+serde_json = "1"
+time = "0.1"
+url = "1"
+hex = "0.3"
+base64 = "0.10"
+idna = "0.1"
+fs2 = "0.4"
+clap = "2"
+indicatif = "0.11"

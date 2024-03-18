@@ -10,6 +10,7 @@ edition = "2018"
 members = [
     "database",
     "hagridctl",
+    "tester",
 ]
 
 [dependencies]
