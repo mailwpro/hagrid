@@ -1,6 +1,7 @@
 extern crate anyhow;
 extern crate clap;
 extern crate indicatif;
+extern crate rand;
 extern crate sequoia_openpgp as openpgp;
 extern crate serde_derive;
 
@@ -11,6 +12,8 @@ use anyhow::Result;
 use clap::{App, Arg, SubCommand};
 
 mod generate;
+mod genreqs;
+mod util;
 
 fn main() -> Result<()> {
     let matches = App::new("Hagrid Tester")
@@ -46,6 +49,17 @@ fn main() -> Result<()> {
                         .help("path to file to store fingerprints in"),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("gen-reqs")
+                .about("generate requests")
+                .arg(
+                    Arg::with_name("fingerprints file")
+                        .long("fingerprints-file")
+                        .default_value("fingerprints.txt")
+                        .help("path to read fingerprints from"),
+                )
+                .arg(Arg::with_name("host").index(1).required(true)),
+        )
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("generate") {
@@ -58,7 +72,18 @@ fn main() -> Result<()> {
         let output_fprs: Option<PathBuf> = matches
             .value_of("fingerprints output file")
             .map(|s| s.parse().unwrap());
-        generate::do_generate(count, output_certs.as_path(), output_fprs.as_ref().map(|f| f.as_path()))?;
+        generate::do_generate(
+            count,
+            output_certs.as_path(),
+            output_fprs.as_ref().map(|f| f.as_path()),
+        )?;
+    } else if let Some(matches) = matches.subcommand_matches("gen-reqs") {
+        let host = matches.value_of("host").unwrap();
+        let fprs_file: PathBuf = matches
+            .value_of("fingerprints file")
+            .map(|s| s.parse().unwrap())
+            .unwrap();
+        genreqs::do_genreqs(host, fprs_file.as_path())?;
     } else {
         println!("{}", matches.usage());
     }

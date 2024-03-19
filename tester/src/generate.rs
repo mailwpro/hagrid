@@ -5,6 +5,8 @@ use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use openpgp::{cert::CertBuilder, serialize::Serialize};
 
+use crate::util;
+
 pub fn do_generate(count: u64, output_path: &Path, fprs_path: Option<&Path>) -> Result<()> {
     let progress_bar = ProgressBar::new(count);
     progress_bar.set_style(
@@ -22,7 +24,7 @@ pub fn do_generate(count: u64, output_path: &Path, fprs_path: Option<&Path>) -> 
     };
     for i in 0..count {
         let (cert, _) =
-            CertBuilder::general_purpose(None, Some(format!("{:07}@hagrid.invalid", i)))
+            CertBuilder::general_purpose(None, Some(util::gen_email(i)))
                 .generate()?;
         cert.serialize(&mut output)?;
         if let Some(ref mut output_fprs) = output_fprs {
