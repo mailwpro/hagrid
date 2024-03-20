@@ -19,6 +19,7 @@ use clap::{App, Arg, SubCommand};
 
 mod import;
 mod regenerate;
+mod dump;
 
 #[derive(Deserialize)]
 pub struct HagridConfigs {
@@ -63,6 +64,7 @@ fn main() -> Result<()> {
                 .possible_values(&["dev", "stage", "prod"]),
         )
         .subcommand(SubCommand::with_name("regenerate").about("Regenerate symlink directory"))
+        .subcommand(SubCommand::with_name("dump").about("Dump whole database into a large keyring file"))
         .subcommand(
             SubCommand::with_name("import")
                 .about("Import keys into Hagrid")
@@ -101,6 +103,8 @@ fn main() -> Result<()> {
         import::do_import(&config, dry_run, keyrings)?;
     } else if let Some(_matches) = matches.subcommand_matches("regenerate") {
         regenerate::do_regenerate(&config)?;
+    } else if let Some(_matches) = matches.subcommand_matches("dump") {
+        dump::do_dump(&config)?;
     } else {
         println!("{}", matches.usage());
     }
