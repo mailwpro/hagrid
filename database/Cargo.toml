@@ -5,7 +5,7 @@ authors = ["Kai Michaelis <kai@sequoia-pgp.org>"]
 
 [dependencies]
 anyhow = "1"
-sequoia-openpgp =  { version = "1", default-features = false, features = ["crypto-openssl"] }
+sequoia-openpgp =  { version = "=1.17.0", default-features = false, features = ["crypto-openssl"] }
 log = "0"
 rand = "0.6"
 serde = { version = "1.0", features = ["derive"] }

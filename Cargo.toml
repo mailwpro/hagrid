@@ -20,7 +20,7 @@ anyhow = "1"
 rocket = { version = "0.5", features = [ "json" ] }
 rocket_dyn_templates = { version = "0.1", features = ["handlebars"] }
 rocket_codegen = "0.5"
-sequoia-openpgp =  { version = "1", default-features = false, features = ["crypto-openssl"] }
+sequoia-openpgp =  { version = "=1.17.0", default-features = false, features = ["crypto-openssl"] }
 multipart = "0"
 serde = "1"
 serde_derive = "1"
