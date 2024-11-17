@@ -113,7 +113,7 @@ mod tests {
         let payload = TestStruct1 {
             payload: "hello".to_owned(),
         };
-        let token = "rwM_S9gZaRQaf6DLvmWtZSipQhH_G5ronSIJv2FrMdwGBPSYYQ-1jaP58dTHU5WuC14vb8jxmz2Xf_b3pqzpCGTEJj9drm4t";
+        let token = "C6fCPAGv93nZqDQXodl-bsDgzkxqbjDtbeR6Be4v_UHJfL2UJxG2imzmUlK1PfLT4QzNIRWsdFDYWrx_aCgLZ4MgVQWYyazn";
         let mt = Service::init("secret", 60);
 
         let check_result = mt.check(token);
