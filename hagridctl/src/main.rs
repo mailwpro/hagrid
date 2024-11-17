@@ -17,9 +17,9 @@ use anyhow::Result;
 
 use clap::{App, Arg, SubCommand};
 
+mod dump;
 mod import;
 mod regenerate;
-mod dump;
 
 #[derive(Deserialize)]
 pub struct HagridConfigs {
@@ -64,7 +64,9 @@ fn main() -> Result<()> {
                 .possible_values(&["dev", "stage", "prod"]),
         )
         .subcommand(SubCommand::with_name("regenerate").about("Regenerate symlink directory"))
-        .subcommand(SubCommand::with_name("dump").about("Dump whole database into a large keyring file"))
+        .subcommand(
+            SubCommand::with_name("dump").about("Dump whole database into a large keyring file"),
+        )
         .subcommand(
             SubCommand::with_name("import")
                 .about("Import keys into Hagrid")

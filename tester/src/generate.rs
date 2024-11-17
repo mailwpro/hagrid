@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path, io::Write};
+use std::{fs::File, io::Write, path::Path};
 
 use anyhow::Result;
 
@@ -23,9 +23,7 @@ pub fn do_generate(count: u64, output_path: &Path, fprs_path: Option<&Path>) -> 
         None
     };
     for i in 0..count {
-        let (cert, _) =
-            CertBuilder::general_purpose(None, Some(util::gen_email(i)))
-                .generate()?;
+        let (cert, _) = CertBuilder::general_purpose(None, Some(util::gen_email(i))).generate()?;
         cert.serialize(&mut output)?;
         if let Some(ref mut output_fprs) = output_fprs {
             writeln!(output_fprs, "{}", cert)?;

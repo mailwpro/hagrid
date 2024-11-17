@@ -57,10 +57,7 @@ impl<'a> DumpStats<'a> {
         }
         self.progress.set_message(&format!(
             "prefix {} dumpd {:5} keys, {:5} Errors ({:3} keys/s)",
-            self.prefix,
-            self.count_total,
-            self.count_err,
-            self.kps_partial
+            self.prefix, self.count_total, self.count_err, self.kps_partial
         ));
     }
 }
@@ -100,11 +97,7 @@ pub fn do_dump(config: &HagridConfig) -> Result<()> {
     Ok(())
 }
 
-fn dump_dir_recursively(
-    stats: &mut DumpStats,
-    output_file: &mut File,
-    dir: &Path,
-) -> Result<()> {
+fn dump_dir_recursively(stats: &mut DumpStats, output_file: &mut File, dir: &Path) -> Result<()> {
     for path in WalkDir::new(dir)
         .follow_links(true)
         .into_iter()

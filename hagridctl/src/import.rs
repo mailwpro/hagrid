@@ -164,7 +164,8 @@ fn import_from_file(db: &KeyDatabase, input: &Path, multi_progress: &MultiProgre
             if !tpk_status.is_revoked {
                 for (email, status) in &tpk_status.email_status {
                     if status == &EmailAddressStatus::NotPublished {
-                        db.set_email_published(&key_fpr.clone().try_into().unwrap(), &email).unwrap();
+                        db.set_email_published(&key_fpr.clone().try_into().unwrap(), &email)
+                            .unwrap();
                     }
                 }
             }

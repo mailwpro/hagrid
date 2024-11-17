@@ -23,10 +23,7 @@ pub fn do_genreqs(host: &str, fprs_path: &Path) -> Result<()> {
         let result = match rng.gen_range(0, 3) {
             0 => {
                 let email = util::gen_email(rng.gen_range(0, fingerprints.len() as u64));
-                stdout.write_fmt(format_args!(
-                    "GET {}/vks/v1/by-email/{}\n",
-                    host, email
-                ))
+                stdout.write_fmt(format_args!("GET {}/vks/v1/by-email/{}\n", host, email))
             }
             1 => {
                 let random_fpr = fingerprints.choose(&mut rng).unwrap();

@@ -1,8 +1,8 @@
 use aes_gcm::{
     aead::{Aead, OsRng},
-    AeadCore, Aes256Gcm, Nonce, Key, KeyInit,
+    AeadCore, Aes256Gcm, Key, KeyInit, Nonce,
 };
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 const NONCE_LEN: usize = 12;
 
@@ -27,7 +27,9 @@ impl SealedState {
             return Err("invalid sealed value: too short");
         }
         let (sealed, nonce) = data.split_at(data.len() - NONCE_LEN);
-        let unsealed = self.cipher.decrypt(Nonce::from_slice(nonce), sealed)
+        let unsealed = self
+            .cipher
+            .decrypt(Nonce::from_slice(nonce), sealed)
             .map_err(|_| "invalid key/nonce/value: bad seal")?;
 
         core::str::from_utf8(&unsealed)
@@ -37,7 +39,8 @@ impl SealedState {
 
     pub fn seal(&self, input: &str) -> Vec<u8> {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let mut sealed = self.cipher
+        let mut sealed = self
+            .cipher
             .encrypt(&nonce, input.as_bytes())
             .expect("sealing works");
         sealed.extend(nonce);
