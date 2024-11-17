@@ -94,3 +94,35 @@ pub fn tpk_filter_alive_emails(tpk: &Cert, emails: &[Email]) -> Cert {
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use openpgp::{cert::CertParser, parse::Parse};
+
+    use crate::openpgp_utils::{tpk_filter_alive_emails, tpk_to_string};
+
+    use super::tpk_clean;
+
+    #[test]
+    fn works_with_sequoia_1_17_but_not_1_18() {
+        let armored = "-----BEGIN PGP PUBLIC KEY BLOCK-----
+Comment: 7E07 FFC5 F4B9 8B1B 9CE3  61E9 4B99 3AA2 D89A 0A17
+Comment: test1@example.com
+
+xjMEZznx5BYJKwYBBAHaRw8BAQdA5MD1f/NiHYZUrlLIAqfYgA4SkoHr7QpFjPcC
+FhqB10LNEXRlc3QxQGV4YW1wbGUuY29twsAOBBMWCgCABYJnOfHkAwsJBwkQS5k6
+otiaChdHFAAAAAAAHgAgc2FsdEBub3RhdGlvbnMuc2VxdW9pYS1wZ3Aub3Jn6ckh
+AdD+if9Ap8p6xuufUCIZeO25LoF9MbEcs3CR9eEDFQoIApkBApsBAh4BFiEEfgf/
+xfS5ixuc42HpS5k6otiaChcAACxYAP4x/Cbw7VbODuGXz0zFYizRiibK58oePhiK
+c+6pYRBORgD/a5QcY57MexWD07wMGKmWiwwB45EhfF3QebgUKSEdaAo=
+=8MtF
+-----END PGP PUBLIC KEY BLOCK-----
+";
+        let cert = CertParser::from_bytes(armored).expect("").into_iter().next().unwrap().unwrap();
+        let cleaned = tpk_clean(&tpk_filter_alive_emails(&cert, &[])).expect("tpk_clean should succeed");
+
+        let other = tpk_to_string(&cleaned).unwrap();
+
+        assert!(other.len() > 0);
+    }
+}
