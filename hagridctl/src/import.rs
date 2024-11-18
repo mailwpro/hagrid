@@ -27,7 +27,7 @@ use HagridConfig;
 const NUM_THREADS_MAX: usize = 3;
 
 #[allow(clippy::needless_collect)]
-pub fn do_import(config: &HagridConfig, dry_run: bool, input_files: Vec<PathBuf>) -> Result<()> {
+pub fn do_import(config: &HagridConfig, input_files: Vec<PathBuf>) -> Result<()> {
     let num_threads = min(NUM_THREADS_MAX, input_files.len());
     let input_file_chunks = setup_chunks(input_files, num_threads);
 
@@ -40,7 +40,7 @@ pub fn do_import(config: &HagridConfig, dry_run: bool, input_files: Vec<PathBuf>
             let config = config.clone();
             let multi_progress = multi_progress.clone();
             thread::spawn(move || {
-                import_from_files(&config, dry_run, input_file_chunk, multi_progress).unwrap();
+                import_from_files(&config, input_file_chunk, multi_progress).unwrap();
             })
         })
         .collect();
@@ -117,16 +117,10 @@ impl<'a> ImportStats<'a> {
 
 fn import_from_files(
     config: &HagridConfig,
-    dry_run: bool,
     input_files: Vec<PathBuf>,
     multi_progress: Arc<MultiProgress>,
 ) -> Result<()> {
-    let db = KeyDatabase::new_internal(
-        config.keys_internal_dir.as_ref().unwrap(),
-        config.keys_external_dir.as_ref().unwrap(),
-        config.tmp_dir.as_ref().unwrap(),
-        dry_run,
-    )?;
+    let db = KeyDatabase::new_file(config.keys_internal_dir.as_ref().unwrap())?;
 
     for input_file in input_files {
         import_from_file(&db, &input_file, &multi_progress)?;

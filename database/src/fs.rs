@@ -24,6 +24,8 @@ use tempfile::NamedTempFile;
 use openpgp::Cert;
 use openpgp_utils::POLICY;
 
+use crate::DatabaseTransaction;
+
 pub struct Filesystem {
     tmp_dir: PathBuf,
 
@@ -263,54 +265,6 @@ impl Filesystem {
         }
     }
 
-    fn link_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let path = self.fingerprint_to_path_published(fpr);
-        let link = self.link_by_email(email);
-        let target = diff_paths(&path, link.parent().unwrap()).unwrap();
-
-        if link == target {
-            return Ok(());
-        }
-
-        symlink(&target, ensure_parent(&link)?)
-    }
-
-    fn link_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let path = self.fingerprint_to_path_published_wkd(fpr);
-        let link = self.link_wkd_by_email(email);
-        let target = diff_paths(&path, link.parent().unwrap()).unwrap();
-
-        if link == target {
-            return Ok(());
-        }
-
-        symlink(&target, ensure_parent(&link)?)
-    }
-
-    fn unlink_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let link = self.link_by_email(email);
-
-        let expected = diff_paths(
-            &self.fingerprint_to_path_published(fpr),
-            link.parent().unwrap(),
-        )
-        .unwrap();
-
-        symlink_unlink_with_check(&link, &expected)
-    }
-
-    fn unlink_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        let link = self.link_wkd_by_email(email);
-
-        let expected = diff_paths(
-            &self.fingerprint_to_path_published_wkd(fpr),
-            link.parent().unwrap(),
-        )
-        .unwrap();
-
-        symlink_unlink_with_check(&link, &expected)
-    }
-
     fn open_logfile(&self, file_name: &str) -> Result<File> {
         let file_path = self.keys_dir_log.join(file_name);
         Ok(OpenOptions::new()
@@ -387,52 +341,93 @@ fn symlink_unlink_with_check(link: &Path, expected: &Path) -> Result<()> {
     Ok(())
 }
 
-impl Database for Filesystem {
-    type MutexGuard = FlockMutexGuard;
+pub struct FilesystemTransaction<'a> {
+    db: &'a Filesystem,
+    _flock: FlockMutexGuard,
+}
+
+impl<'a> FilesystemTransaction<'a> {
+    fn link_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let path = self.db.fingerprint_to_path_published(fpr);
+        let link = self.db.link_by_email(email);
+        let target = diff_paths(&path, link.parent().unwrap()).unwrap();
+
+        if link == target {
+            return Ok(());
+        }
+
+        symlink(&target, ensure_parent(&link)?)
+    }
+
+    fn link_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let path = self.db.fingerprint_to_path_published_wkd(fpr);
+        let link = self.db.link_wkd_by_email(email);
+        let target = diff_paths(&path, link.parent().unwrap()).unwrap();
+
+        if link == target {
+            return Ok(());
+        }
+
+        symlink(&target, ensure_parent(&link)?)
+    }
+
+    fn unlink_email_vks(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let link = self.db.link_by_email(email);
+
+        let expected = diff_paths(
+            &self.db.fingerprint_to_path_published(fpr),
+            link.parent().unwrap(),
+        )
+        .unwrap();
+
+        symlink_unlink_with_check(&link, &expected)
+    }
+
+    fn unlink_email_wkd(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
+        let link = self.db.link_wkd_by_email(email);
+
+        let expected = diff_paths(
+            &self.db.fingerprint_to_path_published_wkd(fpr),
+            link.parent().unwrap(),
+        )
+        .unwrap();
+
+        symlink_unlink_with_check(&link, &expected)
+    }
+}
+
+impl<'a> DatabaseTransaction<'a> for FilesystemTransaction<'a> {
     type TempCert = NamedTempFile;
 
-    fn lock(&self) -> Result<Self::MutexGuard> {
-        FlockMutexGuard::lock(&self.keys_internal_dir)
+    fn commit(self) -> Result<()> {
+        Ok(())
     }
 
     fn write_to_temp(&self, content: &[u8]) -> Result<Self::TempCert> {
         let mut tempfile = tempfile::Builder::new()
             .prefix("key")
             .rand_bytes(16)
-            .tempfile_in(&self.tmp_dir)?;
+            .tempfile_in(&self.db.tmp_dir)?;
         tempfile.write_all(content).unwrap();
         Ok(tempfile)
     }
 
-    fn write_log_append(&self, filename: &str, fpr_primary: &Fingerprint) -> Result<()> {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let fingerprint_line = format!("{:010} {}\n", timestamp, fpr_primary);
-
-        self.open_logfile(filename)?
-            .write_all(fingerprint_line.as_bytes())?;
-
-        Ok(())
-    }
-
     fn move_tmp_to_full(&self, file: Self::TempCert, fpr: &Fingerprint) -> Result<()> {
-        if self.dry_run {
+        if self.db.dry_run {
             return Ok(());
         }
         set_permissions(file.path(), Permissions::from_mode(0o640))?;
-        let target = self.fingerprint_to_path_full(fpr);
+        let target = self.db.fingerprint_to_path_full(fpr);
         file.persist(ensure_parent(&target)?)?;
         Ok(())
     }
 
     fn move_tmp_to_published(&self, file: Self::TempCert, fpr: &Fingerprint) -> Result<()> {
-        if self.dry_run {
+        if self.db.dry_run {
             return Ok(());
         }
         set_permissions(file.path(), Permissions::from_mode(0o644))?;
-        let target = self.fingerprint_to_path_published(fpr);
+        let target = self.db.fingerprint_to_path_published(fpr);
         file.persist(ensure_parent(&target)?)?;
         Ok(())
     }
@@ -442,10 +437,10 @@ impl Database for Filesystem {
         file: Option<Self::TempCert>,
         fpr: &Fingerprint,
     ) -> Result<()> {
-        if self.dry_run {
+        if self.db.dry_run {
             return Ok(());
         }
-        let target = self.fingerprint_to_path_published_wkd(fpr);
+        let target = self.db.fingerprint_to_path_published_wkd(fpr);
         if let Some(file) = file {
             set_permissions(file.path(), Permissions::from_mode(0o644))?;
             file.persist(ensure_parent(&target)?)?;
@@ -460,65 +455,17 @@ impl Database for Filesystem {
         let mut tempfile = tempfile::Builder::new()
             .prefix("key")
             .rand_bytes(16)
-            .tempfile_in(&self.tmp_dir)?;
+            .tempfile_in(&self.db.tmp_dir)?;
         tempfile.write_all(content).unwrap();
 
-        let target = self.fingerprint_to_path_quarantined(fpr);
+        let target = self.db.fingerprint_to_path_quarantined(fpr);
         tempfile.persist(ensure_parent(&target)?)?;
 
         Ok(())
     }
 
-    fn check_link_fpr(
-        &self,
-        fpr: &Fingerprint,
-        fpr_target: &Fingerprint,
-    ) -> Result<Option<Fingerprint>> {
-        let link_keyid = self.link_by_keyid(&fpr.into());
-        let link_fpr = self.link_by_fingerprint(fpr);
-
-        let path_published = self.fingerprint_to_path_published(fpr_target);
-
-        if let Ok(link_fpr_target) = link_fpr.canonicalize() {
-            if !link_fpr_target.ends_with(&path_published) {
-                info!("Fingerprint points to different key for {} (expected {:?} to be suffix of {:?})",
-                    fpr, &path_published, &link_fpr_target);
-                return Err(anyhow!(format!("Fingerprint collision for key {}", fpr)));
-            }
-        }
-
-        if let Ok(link_keyid_target) = link_keyid.canonicalize() {
-            if !link_keyid_target.ends_with(&path_published) {
-                info!(
-                    "KeyID points to different key for {} (expected {:?} to be suffix of {:?})",
-                    fpr, &path_published, &link_keyid_target
-                );
-                return Err(anyhow!(format!("KeyID collision for key {}", fpr)));
-            }
-        }
-
-        if !link_fpr.exists() || !link_keyid.exists() {
-            Ok(Some(fpr.clone()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
-        use super::Query::*;
-        let path = match term {
-            ByFingerprint(ref fp) => self.link_by_fingerprint(fp),
-            ByKeyID(ref keyid) => self.link_by_keyid(keyid),
-            ByEmail(ref email) => self.link_by_email(email),
-            _ => return None,
-        };
-        path.read_link()
-            .ok()
-            .and_then(|link_path| Filesystem::path_to_fingerprint(&link_path))
-    }
-
     fn link_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()> {
-        if self.dry_run {
+        if self.db.dry_run {
             return Ok(());
         }
 
@@ -535,14 +482,14 @@ impl Database for Filesystem {
     }
 
     fn link_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
-        if self.dry_run {
+        if self.db.dry_run {
             return Ok(());
         }
 
-        let link_fpr = self.link_by_fingerprint(from);
-        let link_keyid = self.link_by_keyid(&from.into());
+        let link_fpr = self.db.link_by_fingerprint(from);
+        let link_keyid = self.db.link_by_keyid(&from.into());
         let target = diff_paths(
-            &self.fingerprint_to_path_published(primary_fpr),
+            &self.db.fingerprint_to_path_published(primary_fpr),
             link_fpr.parent().unwrap(),
         )
         .unwrap();
@@ -552,10 +499,10 @@ impl Database for Filesystem {
     }
 
     fn unlink_fpr(&self, from: &Fingerprint, primary_fpr: &Fingerprint) -> Result<()> {
-        let link_fpr = self.link_by_fingerprint(from);
-        let link_keyid = self.link_by_keyid(&from.into());
+        let link_fpr = self.db.link_by_fingerprint(from);
+        let link_keyid = self.db.link_by_keyid(&from.into());
         let expected = diff_paths(
-            &self.fingerprint_to_path_published(primary_fpr),
+            &self.db.fingerprint_to_path_published(primary_fpr),
             link_fpr.parent().unwrap(),
         )
         .unwrap();
@@ -572,6 +519,44 @@ impl Database for Filesystem {
         }
 
         Ok(())
+    }
+}
+
+impl<'a> Database<'a> for Filesystem {
+    type Transaction = FilesystemTransaction<'a>;
+
+    fn transaction(&'a self) -> Result<FilesystemTransaction<'a>> {
+        let flock = FlockMutexGuard::lock(&self.keys_internal_dir)?;
+        Ok(FilesystemTransaction {
+            db: self,
+            _flock: flock,
+        })
+    }
+
+    fn write_log_append(&self, filename: &str, fpr_primary: &Fingerprint) -> Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let fingerprint_line = format!("{:010} {}\n", timestamp, fpr_primary);
+
+        self.open_logfile(filename)?
+            .write_all(fingerprint_line.as_bytes())?;
+
+        Ok(())
+    }
+
+    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint> {
+        use super::Query::*;
+        let path = match term {
+            ByFingerprint(ref fp) => self.link_by_fingerprint(fp),
+            ByKeyID(ref keyid) => self.link_by_keyid(keyid),
+            ByEmail(ref email) => self.link_by_email(email),
+            _ => return None,
+        };
+        path.read_link()
+            .ok()
+            .and_then(|link_path| Filesystem::path_to_fingerprint(&link_path))
     }
 
     // XXX: slow
@@ -614,6 +599,57 @@ impl Database for Filesystem {
     fn by_kid(&self, kid: &KeyID) -> Option<String> {
         let path = self.link_by_keyid(kid);
         self.read_from_path(&path, false)
+    }
+
+    fn get_last_log_entry(&self) -> Result<Fingerprint> {
+        use std::fs;
+        use std::str::FromStr;
+
+        let filename = self.keys_dir_log.join(self.get_current_log_filename());
+        let log_data = fs::read_to_string(filename)?;
+        let last_entry = log_data
+            .lines()
+            .last()
+            .ok_or_else(|| anyhow!("malformed log file"))?
+            .split(' ')
+            .last()
+            .ok_or_else(|| anyhow!("malformed log file"))?;
+        Fingerprint::from_str(last_entry)
+    }
+
+    fn check_link_fpr(
+        &self,
+        fpr: &Fingerprint,
+        fpr_target: &Fingerprint,
+    ) -> Result<Option<Fingerprint>> {
+        let link_keyid = self.link_by_keyid(&fpr.into());
+        let link_fpr = self.link_by_fingerprint(fpr);
+
+        let path_published = self.fingerprint_to_path_published(fpr_target);
+
+        if let Ok(link_fpr_target) = link_fpr.canonicalize() {
+            if !link_fpr_target.ends_with(&path_published) {
+                info!("Fingerprint points to different key for {} (expected {:?} to be suffix of {:?})",
+                    fpr, &path_published, &link_fpr_target);
+                return Err(anyhow!(format!("Fingerprint collision for key {}", fpr)));
+            }
+        }
+
+        if let Ok(link_keyid_target) = link_keyid.canonicalize() {
+            if !link_keyid_target.ends_with(&path_published) {
+                info!(
+                    "KeyID points to different key for {} (expected {:?} to be suffix of {:?})",
+                    fpr, &path_published, &link_keyid_target
+                );
+                return Err(anyhow!(format!("KeyID collision for key {}", fpr)));
+            }
+        }
+
+        if !link_fpr.exists() || !link_keyid.exists() {
+            Ok(Some(fpr.clone()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Checks the database for consistency.
@@ -810,17 +846,16 @@ mod tests {
         let _ = Filesystem::new_from_base(tmpdir.path()).unwrap();
     }
 
-    fn open_db() -> (TempDir, Filesystem, PathBuf) {
+    fn open_db() -> (TempDir, Filesystem) {
         let tmpdir = TempDir::new().unwrap();
         let db = Filesystem::new_from_base(tmpdir.path()).unwrap();
-        let log_path = db.keys_dir_log.join(db.get_current_log_filename());
 
-        (tmpdir, db, log_path)
+        (tmpdir, db)
     }
 
     #[test]
     fn new() {
-        let (_tmp_dir, db, _log_path) = open_db();
+        let (_tmp_dir, db) = open_db();
         let k1 = CertBuilder::new()
             .add_userid("a@invalid.example.org")
             .generate()
@@ -869,120 +904,120 @@ mod tests {
 
     #[test]
     fn uid_verification() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_verification(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_verification(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_deletion() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_deletion(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_deletion(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn subkey_lookup() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_subkey_lookup(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_subkey_lookup(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn kid_lookup() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_kid_lookup(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_kid_lookup(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn upload_revoked_tpk() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_upload_revoked_tpk(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_upload_revoked_tpk(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_revocation() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_revocation(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_revocation(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn regenerate() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_regenerate(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_regenerate(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn key_reupload() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_reupload(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_reupload(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_replacement() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_uid_replacement(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_uid_replacement(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn uid_unlinking() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_unlink_uid(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_unlink_uid(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_1() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_1(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_1(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_2() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_2(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_2(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_3() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_3(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_3(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn same_email_4() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_same_email_4(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_same_email_4(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn no_selfsig() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_no_selfsig(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_no_selfsig(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn bad_uids() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_bad_uids(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_bad_uids(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
     #[test]
     fn unsigned_uids() {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::test_unsigned_uids(&mut db, &log_path);
+        let (_tmp_dir, mut db) = open_db();
+        test::test_unsigned_uids(&mut db);
         db.check_consistency().expect("inconsistent database");
     }
 
@@ -1002,16 +1037,16 @@ mod tests {
 
     #[test]
     fn attested_key_signatures() -> Result<()> {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::attested_key_signatures(&mut db, &log_path)?;
+        let (_tmp_dir, mut db) = open_db();
+        test::attested_key_signatures(&mut db)?;
         db.check_consistency()?;
         Ok(())
     }
 
     #[test]
     fn nonexportable_sigs() -> Result<()> {
-        let (_tmp_dir, mut db, log_path) = open_db();
-        test::nonexportable_sigs(&mut db, &log_path)?;
+        let (_tmp_dir, mut db) = open_db();
+        test::nonexportable_sigs(&mut db)?;
         db.check_consistency()?;
         Ok(())
     }

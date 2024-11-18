@@ -4,7 +4,13 @@ use std::result;
 use std::str::FromStr;
 
 use anyhow::Error;
+use hex::ToHex;
 use openpgp::packet::UserID;
+use r2d2_sqlite::rusqlite::types::FromSql;
+use r2d2_sqlite::rusqlite::types::FromSqlError;
+use r2d2_sqlite::rusqlite::types::FromSqlResult;
+use r2d2_sqlite::rusqlite::types::ToSql;
+use r2d2_sqlite::rusqlite::types::ValueRef;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use Result;
 
@@ -23,6 +29,22 @@ pub struct Email(String);
 impl Email {
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl FromSql for Email {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|s| Self::from_str(s).map_err(|_| FromSqlError::InvalidType))
+    }
+}
+
+impl ToSql for Email {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(
+            rusqlite::types::ValueRef::Text(self.0.as_bytes()),
+        ))
     }
 }
 
@@ -77,8 +99,24 @@ impl FromStr for Email {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 20]);
+
+impl FromSql for Fingerprint {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|s| Self::from_str(s).map_err(|_| FromSqlError::InvalidType))
+    }
+}
+
+impl ToSql for Fingerprint {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Owned(
+            rusqlite::types::Value::Text(self.to_string()),
+        ))
+    }
+}
 
 impl TryFrom<sequoia_openpgp::Fingerprint> for Fingerprint {
     type Error = Error;
@@ -94,7 +132,6 @@ impl TryFrom<sequoia_openpgp::Fingerprint> for Fingerprint {
 
 impl fmt::Display for Fingerprint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use hex::ToHex;
         self.0.write_hex_upper(f)
     }
 }
@@ -137,6 +174,22 @@ impl FromStr for Fingerprint {
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KeyID([u8; 8]);
 
+impl FromSql for KeyID {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()
+            .and_then(|s| Self::from_str(s).map_err(|_| FromSqlError::InvalidType))
+    }
+}
+
+impl ToSql for KeyID {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Owned(
+            rusqlite::types::Value::Text(self.to_string()),
+        ))
+    }
+}
+
 impl TryFrom<sequoia_openpgp::Fingerprint> for KeyID {
     type Error = Error;
 
@@ -169,7 +222,6 @@ impl From<Fingerprint> for KeyID {
 
 impl fmt::Display for KeyID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use hex::ToHex;
         self.0.write_hex_upper(f)
     }
 }

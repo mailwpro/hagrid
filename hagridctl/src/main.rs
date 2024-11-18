@@ -17,9 +17,7 @@ use anyhow::Result;
 
 use clap::{App, Arg, SubCommand};
 
-mod dump;
 mod import;
-mod regenerate;
 
 #[derive(Deserialize)]
 pub struct HagridConfigs {
@@ -35,10 +33,10 @@ pub struct HagridConfigs {
 pub struct HagridConfig {
     _template_dir: Option<PathBuf>,
     keys_internal_dir: Option<PathBuf>,
-    keys_external_dir: Option<PathBuf>,
+    _keys_external_dir: Option<PathBuf>,
     _assets_dir: Option<PathBuf>,
     _token_dir: Option<PathBuf>,
-    tmp_dir: Option<PathBuf>,
+    _tmp_dir: Option<PathBuf>,
     _maintenance_file: Option<PathBuf>,
 }
 
@@ -63,19 +61,9 @@ fn main() -> Result<()> {
                 .default_value("prod")
                 .possible_values(&["dev", "stage", "prod"]),
         )
-        .subcommand(SubCommand::with_name("regenerate").about("Regenerate symlink directory"))
-        .subcommand(
-            SubCommand::with_name("dump").about("Dump whole database into a large keyring file"),
-        )
         .subcommand(
             SubCommand::with_name("import")
                 .about("Import keys into Hagrid")
-                .arg(
-                    Arg::with_name("dry run")
-                        .short("n")
-                        .long("dry-run")
-                        .help("don't actually keep imported keys"),
-                )
                 .arg(
                     Arg::with_name("keyring files")
                         .required(true)
@@ -95,18 +83,13 @@ fn main() -> Result<()> {
     };
 
     if let Some(matches) = matches.subcommand_matches("import") {
-        let dry_run = matches.occurrences_of("dry run") > 0;
         let keyrings: Vec<PathBuf> = matches
             .values_of_lossy("keyring files")
             .unwrap()
             .iter()
             .map(|arg| PathBuf::from_str(arg).unwrap())
             .collect();
-        import::do_import(&config, dry_run, keyrings)?;
-    } else if let Some(_matches) = matches.subcommand_matches("regenerate") {
-        regenerate::do_regenerate(&config)?;
-    } else if let Some(_matches) = matches.subcommand_matches("dump") {
-        dump::do_dump(&config)?;
+        import::do_import(&config, keyrings)?;
     } else {
         println!("{}", matches.usage());
     }

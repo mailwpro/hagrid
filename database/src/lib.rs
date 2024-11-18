@@ -17,7 +17,9 @@ extern crate log;
 extern crate chrono;
 extern crate hex;
 extern crate pathdiff;
+extern crate r2d2_sqlite;
 extern crate rand;
+extern crate self_cell;
 extern crate serde;
 extern crate serde_json;
 extern crate tempfile;
@@ -36,7 +38,8 @@ pub mod sync;
 pub mod wkd;
 
 mod fs;
-pub use self::fs::Filesystem as KeyDatabase;
+mod sqlite;
+pub use self::sqlite::Sqlite as KeyDatabase;
 
 mod stateful_tokens;
 pub use stateful_tokens::StatefulTokens;
@@ -128,40 +131,16 @@ pub enum RegenerateResult {
     Unchanged,
 }
 
-pub trait Database: Sync + Send {
-    type MutexGuard;
+pub trait DatabaseTransaction<'a> {
     type TempCert;
 
-    /// Lock the DB for a complex update.
-    ///
-    /// All basic write operations are atomic so we don't need to lock
-    /// read operations to ensure that we return something sane.
-    fn lock(&self) -> Result<Self::MutexGuard>;
-
-    /// Queries the database using Fingerprint, KeyID, or
-    /// email-address, returning the primary fingerprint.
-    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint>;
+    fn commit(self) -> Result<()>;
 
     fn link_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()>;
     fn unlink_email(&self, email: &Email, fpr: &Fingerprint) -> Result<()>;
 
     fn link_fpr(&self, from: &Fingerprint, to: &Fingerprint) -> Result<()>;
     fn unlink_fpr(&self, from: &Fingerprint, to: &Fingerprint) -> Result<()>;
-
-    fn by_fpr(&self, fpr: &Fingerprint) -> Option<String>;
-    fn by_kid(&self, kid: &KeyID) -> Option<String>;
-    fn by_email(&self, email: &Email) -> Option<String>;
-    fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>>;
-    fn by_domain_and_hash_wkd(&self, domain: &str, hash: &str) -> Option<Vec<u8>>;
-
-    fn check_link_fpr(
-        &self,
-        fpr: &Fingerprint,
-        target: &Fingerprint,
-    ) -> Result<Option<Fingerprint>>;
-
-    fn by_fpr_full(&self, fpr: &Fingerprint) -> Option<String>;
-    fn by_primary_fpr(&self, fpr: &Fingerprint) -> Option<String>;
 
     fn write_to_temp(&self, content: &[u8]) -> Result<Self::TempCert>;
     fn move_tmp_to_full(&self, content: Self::TempCert, fpr: &Fingerprint) -> Result<()>;
@@ -172,8 +151,39 @@ pub trait Database: Sync + Send {
         fpr: &Fingerprint,
     ) -> Result<()>;
     fn write_to_quarantine(&self, fpr: &Fingerprint, content: &[u8]) -> Result<()>;
+}
+
+pub trait Database<'a>: Sync + Send {
+    type Transaction: DatabaseTransaction<'a>;
+
+    /// Lock the DB for a complex update.
+    ///
+    /// All basic write operations are atomic so we don't need to lock
+    /// read operations to ensure that we return something sane.
+    fn transaction(&'a self) -> Result<Self::Transaction>;
+
+    /// Queries the database using Fingerprint, KeyID, or
+    /// email-address, returning the primary fingerprint.
+    fn lookup_primary_fingerprint(&self, term: &Query) -> Option<Fingerprint>;
+
+    fn by_fpr(&self, fpr: &Fingerprint) -> Option<String>;
+    fn by_kid(&self, kid: &KeyID) -> Option<String>;
+    fn by_email(&self, email: &Email) -> Option<String>;
+    fn by_email_wkd(&self, email: &Email) -> Option<Vec<u8>>;
+    fn by_domain_and_hash_wkd(&self, domain: &str, hash: &str) -> Option<Vec<u8>>;
+
+    fn by_fpr_full(&self, fpr: &Fingerprint) -> Option<String>;
+    fn by_primary_fpr(&self, fpr: &Fingerprint) -> Option<String>;
+
+    fn get_last_log_entry(&self) -> Result<Fingerprint>;
+
     fn write_log_append(&self, filename: &str, fpr_primary: &Fingerprint) -> Result<()>;
 
+    fn check_link_fpr(
+        &self,
+        fpr: &Fingerprint,
+        target: &Fingerprint,
+    ) -> Result<Option<Fingerprint>>;
     fn check_consistency(&self) -> Result<()>;
 
     /// Queries the database using Fingerprint, KeyID, or
@@ -205,10 +215,10 @@ pub trait Database: Sync + Send {
     ///    - abort if any problems come up!
     /// 5. Move full and published temporary Cert to their location
     /// 6. Update all symlinks
-    fn merge(&self, new_tpk: Cert) -> Result<ImportResult> {
+    fn merge(&'a self, new_tpk: Cert) -> Result<ImportResult> {
         let fpr_primary = Fingerprint::try_from(new_tpk.primary_key().fingerprint())?;
 
-        let _lock = self.lock()?;
+        let tx = self.transaction()?;
 
         let known_uids: Vec<UserID> = new_tpk
             .userids()
@@ -319,21 +329,21 @@ pub trait Database: Sync + Send {
             .collect::<Result<Vec<_>>>();
 
         if fpr_checks.is_err() {
-            self.write_to_quarantine(&fpr_primary, &tpk_to_string(&full_tpk_new)?)?;
+            tx.write_to_quarantine(&fpr_primary, &tpk_to_string(&full_tpk_new)?)?;
         }
         let fpr_checks = fpr_checks?;
 
         let fpr_not_linked = fpr_checks.into_iter().flatten();
 
-        let full_tpk_tmp = self.write_to_temp(&tpk_to_string(&full_tpk_new)?)?;
+        let full_tpk_tmp = tx.write_to_temp(&tpk_to_string(&full_tpk_new)?)?;
         let published_tpk_clean = tpk_clean(&published_tpk_new)?;
-        let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
+        let published_tpk_tmp = tx.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
         // these are very unlikely to fail. but if it happens,
         // database consistency might be compromised!
-        self.move_tmp_to_full(full_tpk_tmp, &fpr_primary)?;
-        self.move_tmp_to_published(published_tpk_tmp, &fpr_primary)?;
-        self.regenerate_wkd(&fpr_primary, &published_tpk_clean)?;
+        tx.move_tmp_to_full(full_tpk_tmp, &fpr_primary)?;
+        tx.move_tmp_to_published(published_tpk_tmp, &fpr_primary)?;
+        self.regenerate_wkd(&tx, &fpr_primary, &published_tpk_clean)?;
 
         let published_tpk_changed = published_tpk_old
             .map(|tpk| tpk != published_tpk_clean)
@@ -343,19 +353,21 @@ pub trait Database: Sync + Send {
         }
 
         for fpr in fpr_not_linked {
-            if let Err(e) = self.link_fpr(&fpr, &fpr_primary) {
+            if let Err(e) = tx.link_fpr(&fpr, &fpr_primary) {
                 info!("Error ensuring symlink! {} {} {:?}", &fpr, &fpr_primary, e);
             }
         }
 
         for revoked_email in newly_revoked_emails {
-            if let Err(e) = self.unlink_email(revoked_email, &fpr_primary) {
+            if let Err(e) = tx.unlink_email(revoked_email, &fpr_primary) {
                 info!(
                     "Error ensuring symlink! {} {} {:?}",
                     &fpr_primary, &revoked_email, e
                 );
             }
         }
+
+        tx.commit()?;
 
         if is_update {
             Ok(ImportResult::Updated(TpkStatus {
@@ -456,10 +468,10 @@ pub trait Database: Sync + Send {
     ///    - abort if any problems come up!
     /// 5. Move full and published temporary Cert to their location
     /// 6. Update all symlinks
-    fn set_email_published(&self, fpr_primary: &Fingerprint, email_new: &Email) -> Result<()> {
-        let _lock = self.lock()?;
+    fn set_email_published(&'a self, fpr_primary: &Fingerprint, email_new: &Email) -> Result<()> {
+        let tx = self.transaction()?;
 
-        self.nolock_unlink_email_if_other(fpr_primary, email_new)?;
+        self.unlink_email_if_other(&tx, fpr_primary, email_new)?;
 
         let full_tpk = self
             .by_fpr_full(fpr_primary)
@@ -502,25 +514,28 @@ pub trait Database: Sync + Send {
         }
 
         let published_tpk_clean = tpk_clean(&published_tpk_new)?;
-        let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
+        let published_tpk_tmp = tx.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
-        self.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;
-        self.regenerate_wkd(fpr_primary, &published_tpk_clean)?;
+        tx.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;
+        self.regenerate_wkd(&tx, fpr_primary, &published_tpk_clean)?;
 
         self.update_write_log(fpr_primary);
 
-        if let Err(e) = self.link_email(email_new, fpr_primary) {
+        if let Err(e) = tx.link_email(email_new, fpr_primary) {
             info!(
                 "Error ensuring email symlink! {} -> {} {:?}",
                 &email_new, &fpr_primary, e
             );
         }
 
+        tx.commit()?;
+
         Ok(())
     }
 
-    fn nolock_unlink_email_if_other(
+    fn unlink_email_if_other(
         &self,
+        tx: &Self::Transaction,
         fpr_primary: &Fingerprint,
         unlink_email: &Email,
     ) -> Result<()> {
@@ -528,7 +543,7 @@ pub trait Database: Sync + Send {
             self.lookup_primary_fingerprint(&Query::ByEmail(unlink_email.clone()));
         if let Some(current_fpr) = current_link_fpr {
             if current_fpr != *fpr_primary {
-                self.nolock_set_email_unpublished_filter(&current_fpr, |uid| {
+                self.set_email_unpublished_filter(&tx, &current_fpr, |uid| {
                     Email::try_from(uid)
                         .map(|email| email != *unlink_email)
                         .unwrap_or(false)
@@ -553,15 +568,7 @@ pub trait Database: Sync + Send {
     /// 6. Update all symlinks
     fn set_email_unpublished_filter(
         &self,
-        fpr_primary: &Fingerprint,
-        email_remove: impl Fn(&UserID) -> bool,
-    ) -> Result<()> {
-        let _lock = self.lock()?;
-        self.nolock_set_email_unpublished_filter(fpr_primary, email_remove)
-    }
-
-    fn nolock_set_email_unpublished_filter(
-        &self,
+        tx: &Self::Transaction,
         fpr_primary: &Fingerprint,
         email_remove: impl Fn(&UserID) -> bool,
     ) -> Result<()> {
@@ -589,15 +596,15 @@ pub trait Database: Sync + Send {
             .filter(|email| !published_emails_new.contains(email));
 
         let published_tpk_clean = tpk_clean(&published_tpk_new)?;
-        let published_tpk_tmp = self.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
+        let published_tpk_tmp = tx.write_to_temp(&tpk_to_string(&published_tpk_clean)?)?;
 
-        self.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;
-        self.regenerate_wkd(fpr_primary, &published_tpk_clean)?;
+        tx.move_tmp_to_published(published_tpk_tmp, fpr_primary)?;
+        self.regenerate_wkd(&tx, fpr_primary, &published_tpk_clean)?;
 
         self.update_write_log(fpr_primary);
 
         for unpublished_email in unpublished_emails {
-            if let Err(e) = self.unlink_email(unpublished_email, fpr_primary) {
+            if let Err(e) = tx.unlink_email(unpublished_email, fpr_primary) {
                 info!(
                     "Error deleting email symlink! {} -> {} {:?}",
                     &unpublished_email, &fpr_primary, e
@@ -608,19 +615,31 @@ pub trait Database: Sync + Send {
         Ok(())
     }
 
-    fn set_email_unpublished(&self, fpr_primary: &Fingerprint, email_remove: &Email) -> Result<()> {
-        self.set_email_unpublished_filter(fpr_primary, |uid| {
+    fn set_email_unpublished(
+        &'a self,
+        fpr_primary: &Fingerprint,
+        email_remove: &Email,
+    ) -> Result<()> {
+        let tx = self.transaction().unwrap();
+        self.set_email_unpublished_filter(&tx, fpr_primary, |uid| {
             Email::try_from(uid)
                 .map(|email| email != *email_remove)
                 .unwrap_or(false)
-        })
+        })?;
+        tx.commit()?;
+        Ok(())
     }
 
-    fn set_email_unpublished_all(&self, fpr_primary: &Fingerprint) -> Result<()> {
-        self.set_email_unpublished_filter(fpr_primary, |_| false)
+    fn set_email_unpublished_all(&'a self, fpr_primary: &Fingerprint) -> Result<()> {
+        let tx = self.transaction().unwrap();
+        self.set_email_unpublished_filter(&tx, fpr_primary, |_| false)?;
+        tx.commit()?;
+        Ok(())
     }
 
-    fn regenerate_links(&self, fpr_primary: &Fingerprint) -> Result<RegenerateResult> {
+    fn regenerate_links(&'a self, fpr_primary: &Fingerprint) -> Result<RegenerateResult> {
+        let tx = self.transaction().unwrap();
+
         let tpk = self
             .by_primary_fpr(fpr_primary)
             .and_then(|bytes| Cert::from_bytes(bytes.as_bytes()).ok())
@@ -632,7 +651,7 @@ pub trait Database: Sync + Send {
             .flatten()
             .collect();
 
-        self.regenerate_wkd(fpr_primary, &tpk)?;
+        self.regenerate_wkd(&tx, fpr_primary, &tpk)?;
 
         let fingerprints = tpk_get_linkable_fprs(&tpk);
 
@@ -650,13 +669,15 @@ pub trait Database: Sync + Send {
 
         for fpr in fpr_not_linked {
             keys_linked += 1;
-            self.link_fpr(&fpr, fpr_primary)?;
+            tx.link_fpr(&fpr, fpr_primary)?;
         }
 
         for email in published_emails {
             emails_linked += 1;
-            self.link_email(&email, fpr_primary)?;
+            tx.link_email(&email, fpr_primary)?;
         }
+
+        tx.commit()?;
 
         if keys_linked != 0 || emails_linked != 0 {
             Ok(RegenerateResult::Updated)
@@ -665,13 +686,18 @@ pub trait Database: Sync + Send {
         }
     }
 
-    fn regenerate_wkd(&self, fpr_primary: &Fingerprint, published_tpk: &Cert) -> Result<()> {
+    fn regenerate_wkd(
+        &self,
+        tx: &Self::Transaction,
+        fpr_primary: &Fingerprint,
+        published_tpk: &Cert,
+    ) -> Result<()> {
         let published_wkd_tpk_tmp = if published_tpk.userids().next().is_some() {
-            Some(self.write_to_temp(&published_tpk.export_to_vec()?)?)
+            Some(tx.write_to_temp(&published_tpk.export_to_vec()?)?)
         } else {
             None
         };
-        self.move_tmp_to_published_wkd(published_wkd_tpk_tmp, fpr_primary)?;
+        tx.move_tmp_to_published_wkd(published_wkd_tpk_tmp, fpr_primary)?;
 
         Ok(())
     }

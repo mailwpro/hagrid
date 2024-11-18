@@ -319,7 +319,7 @@ pub fn key_to_response_plain(
         return MyResponse::not_found_plain(describe_query_error(&i18n, &query));
     };
 
-    match db.by_fpr(&fp) {
+    match db.by_primary_fpr(&fp) {
         Some(armored) => MyResponse::key(armored, &fp),
         None => MyResponse::not_found_plain(describe_query_error(&i18n, &query)),
     }
@@ -516,11 +516,9 @@ fn configure_prometheus(config: &Figment) -> Option<PrometheusMetrics> {
 
 fn configure_db_service(config: &Figment) -> Result<KeyDatabase> {
     let keys_internal_dir: PathBuf = config.extract_inner("keys_internal_dir")?;
-    let keys_external_dir: PathBuf = config.extract_inner("keys_external_dir")?;
-    let tmp_dir: PathBuf = config.extract_inner("tmp_dir")?;
 
-    let fs_db = KeyDatabase::new(keys_internal_dir, keys_external_dir, tmp_dir)?;
-    Ok(fs_db)
+    let sqlite_db = KeyDatabase::new_file(keys_internal_dir)?;
+    Ok(sqlite_db)
 }
 
 fn configure_hagrid_state(config: &Figment) -> Result<HagridState> {
