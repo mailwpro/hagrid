@@ -19,7 +19,7 @@ pub fn is_status_revoked(status: RevocationStatus) -> bool {
 }
 
 pub fn tpk_to_string(tpk: &Cert) -> Result<Vec<u8>> {
-    tpk.armored().export_to_vec()
+    tpk.armored().to_vec()
 }
 
 pub fn tpk_clean(tpk: &Cert) -> Result<Cert> {
@@ -85,7 +85,10 @@ pub fn tpk_clean(tpk: &Cert) -> Result<Cert> {
 /// Filters the Cert, keeping only UserIDs that aren't revoked, and whose emails match the given list
 pub fn tpk_filter_alive_emails(tpk: &Cert, emails: &[Email]) -> Cert {
     tpk.clone().retain_userids(|uid| {
-        if is_status_revoked(uid.revocation_status(&POLICY, None)) {
+        let is_exportable = uid.self_signatures().any(|s| s.exportable().is_ok());
+        if !is_exportable {
+            false
+        } else if is_status_revoked(uid.revocation_status(&POLICY, None)) {
             false
         } else if let Ok(email) = Email::try_from(uid.userid()) {
             emails.contains(&email)
